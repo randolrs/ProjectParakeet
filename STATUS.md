@@ -2,7 +2,7 @@
 
 _Last updated: 2026-05-26_
 
-## Current milestone: M1 — Auth + deterministic onboarding (CODE COMPLETE, runtime blocked on env)
+## Milestone M1 — Auth + deterministic onboarding (COMPLETE, founder sign-off 2026-05-26)
 
 ### Done (code + DB)
 - Supabase email/password auth via `@supabase/ssr`: server/browser clients, middleware
@@ -19,22 +19,24 @@ _Last updated: 2026-05-26_
 - Quality gates green: lint clean, 29 tests pass (3 skipped), local + Vercel build succeed
   (commit `e37561d` READY).
 
-### Blocked — needs founder action (preview 500s until done)
-1. Add to Vercel env (Production + Preview + Development), then redeploy:
-   - `NEXT_PUBLIC_SUPABASE_URL` = `https://qlifjviffrdihehncqcj.supabase.co`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = `sb_publishable_NtoYQSA_OdlJGoTXhNv8jA_a9ITZCah`
-   Without these the auth middleware throws `MIDDLEWARE_INVOCATION_FAILED` on every route.
-2. Supabase -> Authentication -> URL Configuration: set Site URL to
-   `https://project-parakeet.vercel.app` and add redirect `https://project-parakeet.vercel.app/**`
-   so the confirm-email link returns to the app. (Or disable "Confirm email" for faster testing.)
+### Founder config (done 2026-05-26)
+- `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY` added to Vercel; preview no longer 500s.
+- Supabase Auth Site URL + redirect URLs configured for the confirm-email flow.
+- Verified end-to-end after a real signup: the trigger seeded the `users` row and the onboarding
+  write landed in `company_preferences` (1 user, 1 prefs row, FK-linked) — RLS write path confirmed.
 
 ### M1 acceptance criteria
 - [x] Supabase auth (email + password) implemented
 - [x] Structured company-profile form
 - [x] `company_preferences` persisted via the RLS-enforced path
 - [x] RLS in place (policies + trigger + revoke verified in-DB)
-- [ ] Deployed preview functional (blocked on env above)
-- [ ] Founder-verified
+- [x] Deployed preview functional (`/login` 200; `/onboarding` gated to `/login`)
+- [x] Founder-verified (signed off 2026-05-26)
+
+### Next
+M1 complete. Next milestone (M2 — Conversational onboarding): an LLM flow (Sonnet 4.6) that
+produces the `bid_profile` JSON, with prompts informed by the Mindy/GovCon Giants competitive
+intel. Carry-over: swap the literal `[PRODUCT_NAME]` placeholder before external sharing.
 
 ## Milestone M0 — Foundations & data-source spike (COMPLETE, founder sign-off 2026-05-26)
 
@@ -62,8 +64,8 @@ _Last updated: 2026-05-26_
 ### Env wiring status
 | Var | Source | State |
 | --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://qlifjviffrdihehncqcj.supabase.co` | value ready; **add to Vercel (M1)** |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | publishable key `sb_publishable_NtoYQSA_OdlJGoTXhNv8jA_a9ITZCah` | value ready; **add to Vercel (M1)** |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://qlifjviffrdihehncqcj.supabase.co` | set in Vercel & verified |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | publishable key `sb_publishable_NtoYQSA_OdlJGoTXhNv8jA_a9ITZCah` | set in Vercel & verified |
 | `DATABASE_URL` | Supabase -> Connect -> Transaction pooler (:6543, `prepare: false`); direct :5432 for migrations | set in Vercel & verified |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard -> Settings -> API | deferred to M1 (unused in v1 scaffold) |
 | `OPPORTUNITY_SOURCE`, `GOVCONAPI_KEY`, `SAM_API_KEY`, `ANTHROPIC_API_KEY`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `CRON_SECRET`, `FOUNDER_EMAIL` | see `.env.example` | later milestones |
