@@ -2,7 +2,7 @@
 
 _Last updated: 2026-05-26_
 
-## Current milestone: M0 — Foundations & data-source spike
+## Milestone M0 — Foundations & data-source spike (COMPLETE, founder sign-off 2026-05-26)
 
 ### Done
 - Next.js 15 (App Router) + TypeScript strict skeleton; Tailwind v4.
@@ -39,9 +39,10 @@ _Last updated: 2026-05-26_
 - [x] Hosted Postgres reachable
 - [x] `DATABASE_URL` connects (verified via deployed runtime; local `npm run db:check` will pass with the same value in `.env`)
 - [x] Deployed to Vercel preview
-- [ ] Founder-verified
+- [x] Founder-verified (signed off 2026-05-26)
 
 ### Next
-M0 is functionally complete and awaiting founder sign-off against the acceptance criteria
-above. Optional before external sharing: the page still renders the literal `[PRODUCT_NAME]`
-placeholder (`app/layout.tsx`, `app/page.tsx`) — swap in the real product name.
+M0 complete and signed off (2026-05-26). Next milestone (M1) begins per SPEC.md.
+Carry-overs (not M0 blockers): swap the literal `[PRODUCT_NAME]` placeholder in
+`app/layout.tsx` / `app/page.tsx`; wire `SUPABASE_SERVICE_ROLE_KEY` when the first
+privileged server-side call lands.
