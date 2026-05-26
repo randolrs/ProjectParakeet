@@ -50,3 +50,43 @@ export const companyPreferences = pgTable('company_preferences', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Captured tacit bid/no-bid judgment from the M2 conversation. The judgment
+// fields (won_setups .. response_effort_tolerance) are what a website cannot
+// supply and the per-opportunity scoring later reasons against.
+export const bidProfiles = pgTable('bid_profile', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  capabilitySummary: text('capability_summary'),
+  wonSetups: jsonb('won_setups').notNull().default(sql`'[]'::jsonb`),
+  walkAwaySignals: jsonb('walk_away_signals').notNull().default(sql`'[]'::jsonb`),
+  differentiators: jsonb('differentiators').notNull().default(sql`'[]'::jsonb`),
+  incumbentDisplacementAppetite: text('incumbent_displacement_appetite'),
+  teamingPosture: text('teaming_posture'),
+  responseEffortTolerance: text('response_effort_tolerance'),
+  experienceLevel: text('experience_level'),
+  rawConversationLog: jsonb('raw_conversation_log').notNull().default(sql`'[]'::jsonb`),
+  version: integer('version').notNull().default(1),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Cached company-website crawl + LLM extraction. Cached so onboarding never
+// re-crawls a site (cost discipline); refreshed only on explicit re-run.
+export const companyEnrichment = pgTable('company_enrichment', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  websiteUrl: text('website_url').notNull(),
+  rawMarkdown: text('raw_markdown'),
+  // { naics: string[], psc: string[], capabilitySummary: string, differentiators: string[] }
+  extracted: jsonb('extracted'),
+  source: text('source').notNull().default('firecrawl'),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
