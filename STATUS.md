@@ -1,8 +1,8 @@
 # Project Parakeet — Status
 
-_Last updated: 2026-05-26_
+_Last updated: 2026-05-27_
 
-## Current milestone: M2 — Conversational onboarding (CODE COMPLETE, awaiting founder verification)
+## Milestone M2 — Conversational onboarding + onboarding rework (COMPLETE, founder sign-off 2026-05-27)
 
 ### Done (code + DB)
 - Website front door (FireCrawl): optional "paste your site" on `/onboarding` crawls via a
@@ -30,7 +30,7 @@ _Last updated: 2026-05-26_
 - [x] LLM flow produces `bid_profile` JSON (validated, persisted)
 - [x] Prompts target the gap in the competitor's structured-filter qualification (tacit judgment)
 - [x] Deployed preview builds
-- [ ] Founder-verified (run website autofill + the 4-question interview on the preview)
+- [x] Founder-verified (signed off 2026-05-27; reworked onboarding + interview run verified — 4 prefs rows with spine, 4 enrichment rows, 2 completed bid profiles in-DB)
 
 ### Next
 Founder verifies end-to-end on the preview: paste a company URL -> NAICS/PSC autofill, save
