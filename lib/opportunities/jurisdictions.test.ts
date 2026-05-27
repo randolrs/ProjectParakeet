@@ -45,12 +45,14 @@ describe('FederalJurisdictionStrategy', () => {
     expect(strategy.jurisdiction).toBe('federal');
   });
 
-  it('exposes the four in-scope v1 notice types only', () => {
+  it('exposes the expanded in-scope notice types, early-stage first', () => {
     expect(strategy.vocabulary.noticeTypes).toEqual([
-      'Solicitation',
-      'Combined Synopsis/Solicitation',
-      'Presolicitation',
       'Sources Sought',
+      'Presolicitation',
+      'Combined Synopsis/Solicitation',
+      'Solicitation',
+      'Special Notice',
+      'Award Notice',
     ]);
   });
 
@@ -60,7 +62,9 @@ describe('FederalJurisdictionStrategy', () => {
   });
 
   it('rejects out-of-scope notice types', () => {
-    expect(strategy.isEligible(makeOpp({ noticeType: 'Award Notice' }), noCriteria)).toBe(false);
+    expect(
+      strategy.isEligible(makeOpp({ noticeType: 'Justification and Approval (J&A)' }), noCriteria),
+    ).toBe(false);
   });
 
   it('accepts an in-scope opportunity when no criteria restrict it', () => {

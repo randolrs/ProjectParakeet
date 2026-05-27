@@ -1,5 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
+  boolean,
   integer,
   jsonb,
   pgTable,
@@ -33,16 +35,34 @@ export const companyPreferences = pgTable('company_preferences', {
     .notNull()
     .unique()
     .references(() => users.id, { onDelete: 'cascade' }),
+  // Certifications the company HOLDS (granted). certs_pursuing are in-progress.
   certifications: text('certifications').array().notNull().default(sql`ARRAY[]::text[]`),
+  certsPursuing: text('certs_pursuing').array().notNull().default(sql`ARRAY[]::text[]`),
   primaryNaics: text('primary_naics').array().notNull().default(sql`ARRAY[]::text[]`),
   secondaryNaics: text('secondary_naics').array().notNull().default(sql`ARRAY[]::text[]`),
   pscCodes: text('psc_codes').array().notNull().default(sql`ARRAY[]::text[]`),
+  // Free-text capability keywords (how vendors actually search), e.g. "helpdesk".
+  keywords: text('keywords').array().notNull().default(sql`ARRAY[]::text[]`),
+  // GSA Schedule, GWAC, IDIQ, BPA, ...
+  contractVehicles: text('contract_vehicles').array().notNull().default(sql`ARRAY[]::text[]`),
+  // Eligible set-asides, derived from certs_granted and optionally widened.
   setAsideTypes: text('set_aside_types').array().notNull().default(sql`ARRAY[]::text[]`),
-  // { states: string[], remote: boolean, nationwide: boolean }
+  // Where the company CAN perform: { states: string[], remote: bool, nationwide: bool }.
   placeOfPerformance: jsonb('place_of_performance')
     .notNull()
     .default(sql`'{"states":[],"remote":false,"nationwide":false}'::jsonb`),
+  // Where the company IS located (principal office) — drives HUBZone / local preference.
+  hqState: text('hq_state'),
+  // Contract value appetite as a range (USD). value_band kept only for back-compat.
+  valueMin: bigint('value_min', { mode: 'number' }),
+  valueMax: bigint('value_max', { mode: 'number' }),
   valueBand: text('value_band'),
+  // Size inputs — small/large is derived against the primary NAICS size standard.
+  annualRevenueUsd: bigint('annual_revenue_usd', { mode: 'number' }),
+  employeeCount: integer('employee_count'),
+  // Readiness: active SAM registration + UEI.
+  samRegistered: boolean('sam_registered').notNull().default(false),
+  hasUei: boolean('has_uei').notNull().default(false),
   role: text('role'),
   agenciesOfInterest: text('agencies_of_interest').array().notNull().default(sql`ARRAY[]::text[]`),
   agenciesExcluded: text('agencies_excluded').array().notNull().default(sql`ARRAY[]::text[]`),

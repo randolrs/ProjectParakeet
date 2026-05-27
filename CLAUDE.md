@@ -27,7 +27,7 @@ Personalized AI morning digest for government contractors. Read SPEC.md for prod
 - Anthropic API (not OpenAI)
 - Federal first, SLED deferred to M7+
 - Jurisdiction is first-class in the schema even though only federal ships in v1
-- v1 notice scope is the four actionable types only (see SPEC.md); awards/justifications out
+- v1 notice scope expanded 2026-05 (founder decision) to six types (see SPEC.md): the four actionable + Special Notices (early-stage shaping) and Award Notices (teaming/recompete intel — labeled as such, not bid targets); justifications/intent-to-bundle/surplus still out
 - Single pricing tier at launch ($149/mo)
 - Web only, no mobile app
 - Resend for email
@@ -82,7 +82,7 @@ LLM cost model (source-independent):
 ## Federal Contracting Vocabulary (use consistently in code, prompts, UI)
 - Certifications: 8(a), WOSB, EDWOSB, SDVOSB, VOSB, HUBZone, SDB
 - Set-aside types: Total Small Business, Partial Small Business, 8(a) Sole Source, 8(a) Competitive, WOSB, EDWOSB, SDVOSB, HUBZone, full and open
-- Notice types (v1 in-scope): Solicitation, Combined Synopsis/Solicitation, Presolicitation, Sources Sought
+- Notice types (v1 in-scope, expanded 2026-05): Sources Sought/RFI, Presolicitation, Combined Synopsis/Solicitation, Solicitation, Special Notice, Award Notice (ordered early-stage first)
 - NAICS: the primary filtering spine; opportunities carry one NAICS, companies carry several
 - PSC: Product Service Code; secondary classifier
 - Value bands: micro-purchase (≤$10k), simplified acquisition threshold (≤$250k), above SAT, large

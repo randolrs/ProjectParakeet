@@ -28,11 +28,11 @@ Direct competitors (Mindy, and the broader category of GovCon "opportunity intel
 Federal only, via the active opportunity source. State & Local (SLED) is the planned expansion path and is a first-class concept in the schema, but no SLED ingest ships in v1.
 
 ## Notice Scope (v1) — quality over firehose
-In scope: Solicitation, Combined Synopsis/Solicitation, Presolicitation, Sources Sought. These are the notices a contractor can act on.
+In scope (expanded 2026-05; was the four actionable types only): Sources Sought / RFI, Presolicitation, Combined Synopsis/Solicitation, Solicitation, Special Notice, Award Notice. The middle ones are directly biddable; Sources Sought/RFI and Special Notices let a small vendor shape early-stage requirements (often the highest-value notice); Award Notices feed teaming-target and recompete intel.
 
-Explicitly out of v1: Award Notice, Justification & Approval, Intent to Bundle, Fair Opportunity / Limited Sources Justification, Sale of Surplus Property, Special Notice. Also out: opportunities with no future response deadline, and long-running IDIQ/BOA vehicles that the source does not surface as recently posted/modified.
+Explicitly out of v1: Justification & Approval, Intent to Bundle, Fair Opportunity / Limited Sources Justification, Sale of Surplus Property. Also out: opportunities with no future response deadline, and long-running IDIQ/BOA vehicles that the source does not surface as recently posted/modified.
 
-Rationale: a digest is only useful if every line is something the user can bid. Awards and justifications are research, not action.
+Rationale: every line should be something the user can act on — bid, shape early, or pursue via teaming/recompete. Award Notices are included for the teaming/recompete play, not as bid targets, and the digest must label them as such.
 
 ## Core User Flow
 1. Land → email capture for first free digest, or signup with email + password

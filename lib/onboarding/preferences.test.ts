@@ -11,66 +11,74 @@ function form(fields: Record<string, string | string[]>): FormData {
 }
 
 const valid = {
-  certifications: ['8(a)', 'WOSB'],
-  primaryNaics: '541512, 541519',
+  certsGranted: ['8(a)', 'WOSB'],
+  certsPursuing: ['HUBZone'],
+  primaryNaics: ['541512'], // confirmed suggestion (checkbox)
+  primaryNaicsAdd: '541519', // hand-added
   secondaryNaics: '518210',
-  pscCodes: 'd307, r425',
-  setAsideTypes: ['8(a) Competitive', 'WOSB'],
-  states: ['VA', 'MD'],
+  pscCodes: 'd307',
+  keywords: 'managed IT, helpdesk',
+  contractVehicles: ['GSA Schedule'],
+  widenFullOpen: 'on',
+  states: ['VA'],
   remote: 'on',
-  valueBand: 'above_sat',
+  hqState: 'VA',
+  valueMin: '$50,000',
+  valueMax: '$2,000,000',
+  annualRevenueUsd: '5,000,000',
+  employeeCount: '40',
+  samRegistered: 'on',
+  hasUei: 'on',
   role: 'prime',
-  agenciesOfInterest: 'Department of Defense\nGSA',
+  agenciesOfInterest: 'Department of Defense',
   agenciesExcluded: 'Department of Energy',
-  noticeTypes: ['Solicitation', 'Sources Sought'],
+  noticeTypes: ['Sources Sought', 'Award Notice'],
 };
 
 describe('parsePreferencesForm', () => {
-  it('parses a complete, valid form', () => {
+  it('parses a complete form and derives set-asides from held certs', () => {
     const result = parsePreferencesForm(form(valid));
     expect(result.success).toBe(true);
     if (!result.success) return;
-    expect(result.data.primaryNaics).toEqual(['541512', '541519']);
-    expect(result.data.pscCodes).toEqual(['D307', 'R425']); // uppercased
-    expect(result.data.placeOfPerformance).toEqual({
-      states: ['VA', 'MD'],
-      remote: true,
-      nationwide: false,
-    });
-    expect(result.data.agenciesOfInterest).toEqual(['Department of Defense', 'GSA']);
+    const d = result.data;
+    expect(d.primaryNaics).toEqual(['541512', '541519']);
+    expect(d.pscCodes).toEqual(['D307']);
+    expect(d.keywords).toEqual(['managed IT', 'helpdesk']);
+    expect(d.valueMin).toBe(50000);
+    expect(d.valueMax).toBe(2000000);
+    expect(d.annualRevenueUsd).toBe(5000000);
+    expect(d.employeeCount).toBe(40);
+    expect(d.samRegistered).toBe(true);
+    // Set-asides are derived, not collected
+    expect(d.setAsideTypes).toContain('8(a) Sole Source');
+    expect(d.setAsideTypes).toContain('WOSB');
+    expect(d.setAsideTypes).toContain('Total Small Business');
+    expect(d.setAsideTypes).toContain('full and open'); // widened
   });
 
-  it('requires at least one primary NAICS code', () => {
-    const result = parsePreferencesForm(form({ ...valid, primaryNaics: '' }));
+  it('does not add full-and-open unless widened', () => {
+    const fd = form(valid);
+    fd.delete('widenFullOpen');
+    const result = parsePreferencesForm(fd);
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.setAsideTypes).not.toContain('full and open');
+  });
+
+  it('requires at least one keyword or NAICS code', () => {
+    const result = parsePreferencesForm(
+      form({ ...valid, keywords: '', primaryNaics: [], primaryNaicsAdd: '' }),
+    );
     expect(result.success).toBe(false);
   });
 
   it('rejects malformed NAICS codes', () => {
-    const result = parsePreferencesForm(form({ ...valid, primaryNaics: '54151' }));
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects an unknown certification', () => {
-    const result = parsePreferencesForm(form({ ...valid, certifications: ['MBE'] }));
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects an invalid value band', () => {
-    const result = parsePreferencesForm(form({ ...valid, valueBand: 'huge' }));
+    const result = parsePreferencesForm(form({ ...valid, primaryNaicsAdd: '54151' }));
     expect(result.success).toBe(false);
   });
 
   it('rejects an out-of-scope notice type', () => {
-    const result = parsePreferencesForm(form({ ...valid, noticeTypes: ['Award Notice'] }));
+    const result = parsePreferencesForm(form({ ...valid, noticeTypes: ['Justification'] }));
     expect(result.success).toBe(false);
-  });
-
-  it('defaults unchecked place-of-performance flags to false', () => {
-    const fd = form(valid);
-    fd.delete('remote');
-    const result = parsePreferencesForm(fd);
-    expect(result.success).toBe(true);
-    if (!result.success) return;
-    expect(result.data.placeOfPerformance.remote).toBe(false);
   });
 });

@@ -22,12 +22,18 @@ export const FEDERAL_VOCABULARY: JurisdictionVocabulary = {
     'HUBZone',
     'full and open',
   ],
-  // v1 in-scope notice types only (awards/justifications are out).
+  // v1 in-scope notice types. Expanded 2026-05 (founder decision) to add
+  // Special + Award notices: Sources Sought/RFI and Special Notices let a small
+  // vendor shape early-stage requirements, and Award Notices feed teaming-target
+  // and recompete intel. Justifications, intent-to-bundle, and surplus sales
+  // remain out. Ordered early-stage first.
   noticeTypes: [
-    'Solicitation',
-    'Combined Synopsis/Solicitation',
-    'Presolicitation',
     'Sources Sought',
+    'Presolicitation',
+    'Combined Synopsis/Solicitation',
+    'Solicitation',
+    'Special Notice',
+    'Award Notice',
   ],
 } as const;
 

@@ -48,15 +48,21 @@ export function buildConversationContext(prefs: PrefsLike, extracted: ExtractedL
   if (diffs.length) lines.push(`- Differentiators: ${diffs.join('; ')}`);
 
   if (prefs) {
+    const keywords = asStringArray(prefs.keywords);
     const certs = asStringArray(prefs.certifications);
     const naics = asStringArray(prefs.primary_naics);
     const setAsides = asStringArray(prefs.set_aside_types);
-    if (certs.length) lines.push(`- Certifications: ${certs.join(', ')}`);
+    if (keywords.length) lines.push(`- Capabilities: ${keywords.join(', ')}`);
+    if (certs.length) lines.push(`- Certifications held: ${certs.join(', ')}`);
     if (naics.length) lines.push(`- Primary NAICS: ${naics.join(', ')}`);
-    if (setAsides.length) lines.push(`- Set-asides pursued: ${setAsides.join(', ')}`);
+    if (setAsides.length) lines.push(`- Set-asides: ${setAsides.join(', ')}`);
     if (typeof prefs.role === 'string' && prefs.role) lines.push(`- Role: ${prefs.role}`);
-    if (typeof prefs.value_band === 'string' && prefs.value_band) {
-      lines.push(`- Contract value band: ${prefs.value_band}`);
+    const vmin = typeof prefs.value_min === 'number' ? prefs.value_min : null;
+    const vmax = typeof prefs.value_max === 'number' ? prefs.value_max : null;
+    if (vmin != null || vmax != null) {
+      const lo = vmin != null ? `$${vmin.toLocaleString()}` : 'any';
+      const hi = vmax != null ? `$${vmax.toLocaleString()}` : 'any';
+      lines.push(`- Contract value range: ${lo} to ${hi}`);
     }
   }
 

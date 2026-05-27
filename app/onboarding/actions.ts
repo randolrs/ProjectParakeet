@@ -72,17 +72,27 @@ export async function saveCompanyPreferences(
 
   const p = parsed.data;
   // RLS enforces user_id = auth.uid(); we still set it explicitly for the row.
+  // certifications = held/granted; set_aside_types are derived in the parser.
   const { error } = await supabase.from('company_preferences').upsert(
     {
       user_id: user.id,
-      certifications: p.certifications,
+      certifications: p.certsGranted,
+      certs_pursuing: p.certsPursuing,
       primary_naics: p.primaryNaics,
       secondary_naics: p.secondaryNaics,
       psc_codes: p.pscCodes,
+      keywords: p.keywords,
+      contract_vehicles: p.contractVehicles,
       set_aside_types: p.setAsideTypes,
       place_of_performance: p.placeOfPerformance,
-      value_band: p.valueBand,
-      role: p.role,
+      hq_state: p.hqState || null,
+      value_min: p.valueMin,
+      value_max: p.valueMax,
+      annual_revenue_usd: p.annualRevenueUsd,
+      employee_count: p.employeeCount,
+      sam_registered: p.samRegistered,
+      has_uei: p.hasUei,
+      role: p.role ?? null,
       agencies_of_interest: p.agenciesOfInterest,
       agencies_excluded: p.agenciesExcluded,
       notice_types: p.noticeTypes,

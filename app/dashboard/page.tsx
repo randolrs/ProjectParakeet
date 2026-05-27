@@ -37,14 +37,20 @@ export default async function DashboardPage() {
             Daily digests begin once opportunity ingest is live (M3).
           </p>
           <dl className="grid grid-cols-[10rem_1fr] gap-y-1">
+            <dt className="text-zinc-500">Capabilities</dt>
+            <dd>{(prefs.keywords ?? []).join(', ') || '—'}</dd>
             <dt className="text-zinc-500">Certifications</dt>
             <dd>{(prefs.certifications ?? []).join(', ') || '—'}</dd>
             <dt className="text-zinc-500">Primary NAICS</dt>
             <dd className="font-mono">{(prefs.primary_naics ?? []).join(', ') || '—'}</dd>
-            <dt className="text-zinc-500">Role</dt>
-            <dd>{prefs.role ?? '—'}</dd>
-            <dt className="text-zinc-500">Value band</dt>
-            <dd>{prefs.value_band ?? '—'}</dd>
+            <dt className="text-zinc-500">Set-asides</dt>
+            <dd>{(prefs.set_aside_types ?? []).join(', ') || '—'}</dd>
+            <dt className="text-zinc-500">Value range</dt>
+            <dd>
+              {prefs.value_min != null || prefs.value_max != null
+                ? `${prefs.value_min != null ? '$' + Number(prefs.value_min).toLocaleString() : 'any'} – ${prefs.value_max != null ? '$' + Number(prefs.value_max).toLocaleString() : 'any'}`
+                : '—'}
+            </dd>
           </dl>
           <Link href="/onboarding" className="underline">
             Edit preferences

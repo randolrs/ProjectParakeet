@@ -4,13 +4,35 @@ import { fetchJson } from '@/lib/http';
 import { anthropic, MODELS, withClaudeLogging } from '@/lib/llm/client';
 import { WEBSITE_EXTRACTION_PROMPT } from '@/lib/llm/prompts/federal/website-extraction';
 
+// A ranked NAICS suggestion carries the plain-English title and the applicable
+// SBA size standard so the user confirms in human terms, not raw codes.
+export const ExtractedNaicsSchema = z.object({
+  code: z.string(),
+  label: z.string(),
+  sizeStandard: z.string(),
+});
+export type ExtractedNaics = z.infer<typeof ExtractedNaicsSchema>;
+
 export const ExtractedCompanySchema = z.object({
-  naics: z.array(z.string()),
+  naics: z.array(ExtractedNaicsSchema),
   psc: z.array(z.string()),
+  keywords: z.array(z.string()),
   capabilitySummary: z.string(),
   differentiators: z.array(z.string()),
+  valueMin: z.number().nullable(),
+  valueMax: z.number().nullable(),
 });
 export type ExtractedCompany = z.infer<typeof ExtractedCompanySchema>;
+
+const EMPTY_EXTRACTION: ExtractedCompany = {
+  naics: [],
+  psc: [],
+  keywords: [],
+  capabilitySummary: '',
+  differentiators: [],
+  valueMin: null,
+  valueMax: null,
+};
 
 // Source-agnostic crawl behind an interface, mirroring OpportunitySource. The
 // FireCrawl impl normalizes at its own boundary with Zod.
@@ -56,23 +78,25 @@ const NAICS_RE = /^\d{6}$/;
 const PSC_RE = /^[A-Z0-9]{4}$/;
 
 // Pure post-processing of the model's extraction: drop malformed codes, cap
-// differentiators. Separated for unit testing (LLM-output parsing).
+// lists, clamp values. Separated for unit testing (LLM-output parsing).
 export function sanitizeExtracted(out: ExtractedCompany): ExtractedCompany {
+  const clamp = (n: number | null) => (n != null && n >= 0 && Number.isFinite(n) ? Math.round(n) : null);
   return {
-    naics: out.naics.filter((c) => NAICS_RE.test(c)),
+    naics: out.naics.filter((n) => NAICS_RE.test(n.code)).slice(0, 6),
     psc: out.psc.map((c) => c.toUpperCase()).filter((c) => PSC_RE.test(c)),
+    keywords: out.keywords.map((k) => k.trim()).filter(Boolean).slice(0, 12),
     capabilitySummary: out.capabilitySummary.trim(),
     differentiators: out.differentiators.map((d) => d.trim()).filter(Boolean).slice(0, 5),
+    valueMin: clamp(out.valueMin),
+    valueMax: clamp(out.valueMax),
   };
 }
 
 // Extracts a structured company profile from crawled markdown via Sonnet 4.6
-// structured output, then drops any malformed codes the model returned.
+// structured output, then sanitizes.
 export async function extractCompany(markdown: string): Promise<ExtractedCompany> {
   const content = markdown.slice(0, 24_000); // bound token cost
-  if (!content.trim()) {
-    return { naics: [], psc: [], capabilitySummary: '', differentiators: [] };
-  }
+  if (!content.trim()) return EMPTY_EXTRACTION;
 
   const res = await withClaudeLogging({ op: 'website_extraction' }, () =>
     anthropic().messages.parse({
@@ -86,7 +110,5 @@ export async function extractCompany(markdown: string): Promise<ExtractedCompany
     }),
   );
 
-  return sanitizeExtracted(
-    res.parsed_output ?? { naics: [], psc: [], capabilitySummary: '', differentiators: [] },
-  );
+  return sanitizeExtracted(res.parsed_output ?? EMPTY_EXTRACTION);
 }

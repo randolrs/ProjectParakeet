@@ -37,6 +37,22 @@ Founder verifies end-to-end on the preview: paste a company URL -> NAICS/PSC aut
 preferences, complete the 4-question interview, confirm the bid/no-bid profile renders on the
 dashboard. Then M2 closes and M3 (daily ingest) begins.
 
+### Onboarding rework (2026-05-27) — Persona B spine
+Reworked onboarding around **commercial SMBs being pulled into federal** (capability-and-geography
+first; codes derived, plain-English-labeled, confirmed not authored), with a fast confirm path for
+code-fluent vendors. Shipped: autofill pre-fills real fields (ranked NAICS + labels + size standard,
+PSC, keywords, value range); set-asides DERIVED from held certs with contradiction + HUBZone×fully-
+remote warnings (pure `lib/onboarding/eligibility.ts`, unit-tested); value as a min-max range;
+keywords + contract vehicles; place-of-performance split (perform vs HQ-located) with mobile-first
+Remote/Nationwide toggles + collapsed state grid; readiness (SAM/UEI, certs granted vs pursuing);
+expanded + explained notice types (early-stage checked by default); broad-by-default with hard-filter
+vs ranking-signal labels and "start broad" framing.
+Founder decisions: notice scope EXPANDED (Special + Award notices; SPEC.md/CLAUDE.md updated; M3
+ingest must pull them); live match-volume DEFERRED to M3 (no fabricated counts — framing only now);
+NAICS labels + size standard LLM-DERIVED for now. Schema migration 0004 applied (additive).
+Deferred to later milestones: live match count + the Sub/Both Award-Notices teaming feed (need M3
+data/ingest); an authoritative SBA size-standard table could later replace the LLM-derived values.
+
 ## Milestone M1 — Auth + deterministic onboarding (COMPLETE, founder sign-off 2026-05-26)
 
 ### Done (code + DB)
