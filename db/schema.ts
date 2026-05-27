@@ -7,6 +7,7 @@ import {
   pgTable,
   text,
   timestamp,
+  unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -108,5 +109,58 @@ export const companyEnrichment = pgTable('company_enrichment', {
   extracted: jsonb('extracted'),
   source: text('source').notNull().default('firecrawl'),
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Centrally-ingested federal opportunities (the daily pull). Not user-scoped:
+// per-user filtering/scoring runs server-side over the trusted Drizzle
+// connection, so RLS is enabled with NO authenticated policies (deny-by-default
+// to the browser clients).
+export const opportunities = pgTable(
+  'opportunities',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    jurisdiction: text('jurisdiction').notNull().default('federal'),
+    externalNoticeId: text('external_notice_id').notNull(),
+    solicitationNumber: text('solicitation_number'),
+    title: text('title').notNull(),
+    department: text('department'),
+    subTier: text('sub_tier'),
+    office: text('office'),
+    noticeType: text('notice_type').notNull(),
+    naicsCode: text('naics_code'),
+    pscCode: text('psc_code'),
+    setAsideType: text('set_aside_type'),
+    postedDate: timestamp('posted_date', { withTimezone: true }),
+    responseDeadline: timestamp('response_deadline', { withTimezone: true }),
+    placeOfPerformance: jsonb('place_of_performance'),
+    descriptionUrl: text('description_url'),
+    descriptionText: text('description_text'),
+    pointOfContact: jsonb('point_of_contact'),
+    award: jsonb('award'),
+    rawData: jsonb('raw_data').notNull(),
+    rawDataHash: text('raw_data_hash').notNull(),
+    firstFetchedAt: timestamp('first_fetched_at', { withTimezone: true }).notNull().defaultNow(),
+    lastFetchedAt: timestamp('last_fetched_at', { withTimezone: true }).notNull().defaultNow(),
+    isActive: boolean('is_active').notNull().default(true),
+  },
+  (t) => [unique('opportunities_jurisdiction_external_id_unique').on(t.jurisdiction, t.externalNoticeId)],
+);
+
+// One row per ingest run: window, requests consumed (budget tracking), and
+// upsert counts. Trusted-access only, like opportunities.
+export const ingestRuns = pgTable('ingest_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  source: text('source').notNull(),
+  jurisdiction: text('jurisdiction').notNull().default('federal'),
+  status: text('status').notNull().default('running'),
+  windowFrom: timestamp('window_from', { withTimezone: true }),
+  windowTo: timestamp('window_to', { withTimezone: true }),
+  requestsConsumed: integer('requests_consumed').notNull().default(0),
+  opportunitiesUpserted: integer('opportunities_upserted').notNull().default(0),
+  opportunitiesNew: integer('opportunities_new').notNull().default(0),
+  descriptionsFetched: integer('descriptions_fetched').notNull().default(0),
+  error: text('error'),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp('finished_at', { withTimezone: true }),
 });
 

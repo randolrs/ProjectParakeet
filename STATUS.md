@@ -2,6 +2,40 @@
 
 _Last updated: 2026-05-27_
 
+## Current milestone: M3 — Daily ingest (CODE COMPLETE, needs source key to run live)
+
+### Done (code + DB)
+- `opportunities` + `ingest_runs` tables (Drizzle; migrations 0005/0006 applied). RLS enabled
+  deny-by-default — trusted-access only, written/read over the Drizzle (postgres-role) connection,
+  never the browser clients.
+- Centralized, date-windowed, paginated, budget-aware ingest (`lib/opportunities/ingest.ts`) behind
+  an injectable store: reads `source.capabilities.requestBudget`, caps pages/run, dedupes by
+  `raw_data_hash` (new/updated/unchanged), logs each run to `ingest_runs`. Unit-tested with a fake
+  source + store.
+- Daily Vercel Cron (`vercel.json`, 06:00 UTC) -> `GET /api/cron/ingest`, guarded by `CRON_SECRET`.
+- `lib/db.ts` made lazy (`getDb()`) so importing it never throws at build when `DATABASE_URL` absent.
+- Gates: lint clean, 44 tests pass (3 skipped), build green.
+
+### Blocked — needs founder action (to run live)
+1. Add a source key to Vercel: `GOVCONAPI_KEY` (instant; v1 primary) and set
+   `OPPORTUNITY_SOURCE=govconapi`. (`SAM_API_KEY` is the fallback — 10/day until entity reg clears.)
+2. Add `CRON_SECRET` to Vercel (guards the cron route; Vercel attaches it as the bearer token).
+3. Confirm GovConAPI ToS has no no-competing/no-derivative-service clause before relying on it
+   (CLAUDE.md known risk); if present, SAM direct is the production source.
+   (`DATABASE_URL` is already in Vercel from M0 — the ingest's trusted path uses it.)
+
+### M3 acceptance criteria
+- [x] Cron pulls active federal opportunities into Postgres via the active source
+- [x] Budget-aware (reads source capabilities; per-run page cap; logged in `ingest_runs`)
+- [x] Descriptions present per source capability (GovConAPI inline; SAM lazy-fetch deferred to when SAM is active)
+- [ ] Verified live (needs a source key) — manual run + founder check
+- [ ] Founder-verified
+
+### Next
+Founder adds `GOVCONAPI_KEY` + `OPPORTUNITY_SOURCE` + `CRON_SECRET` to Vercel; then trigger
+`/api/cron/ingest` once (with the bearer) or wait for the 06:00 UTC cron, and confirm `opportunities`
+rows + an `ingest_runs` row land. Then M4 (digest pipeline: filter + score + bid/no-bid + email) begins.
+
 ## Milestone M2 — Conversational onboarding + onboarding rework (COMPLETE, founder sign-off 2026-05-27)
 
 ### Done (code + DB)

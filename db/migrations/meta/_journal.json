@@ -36,6 +36,20 @@
       "when": 1779858882442,
       "tag": "0004_curvy_wind_dancer",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779913282444,
+      "tag": "0005_gorgeous_firelord",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1779913297691,
+      "tag": "0006_ingest_rls",
+      "breakpoints": true
     }
   ]
 }

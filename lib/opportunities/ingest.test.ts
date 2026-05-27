@@ -1,0 +1,104 @@
+import { describe, expect, it } from 'vitest';
+import { runIngest, type IngestStore, type UpsertResult } from './ingest';
+import type {
+  NormalizedOpportunity,
+  OpportunitySearchParams,
+  OpportunitySource,
+} from './sources';
+
+function opp(id: string, rawData: Record<string, unknown> = { id }): NormalizedOpportunity {
+  return {
+    jurisdiction: 'federal',
+    externalNoticeId: id,
+    solicitationNumber: null,
+    title: `Opp ${id}`,
+    department: null,
+    subTier: null,
+    office: null,
+    noticeType: 'Solicitation',
+    naicsCode: '541512',
+    pscCode: null,
+    setAsideType: null,
+    postedDate: '2026-05-01T00:00:00.000Z',
+    responseDeadline: null,
+    placeOfPerformance: null,
+    descriptionUrl: null,
+    descriptionText: 'desc',
+    pointOfContact: null,
+    rawData,
+  };
+}
+
+class FakeSource implements OpportunitySource {
+  readonly name = 'fake';
+  readonly capabilities = {
+    descriptionsInline: true,
+    requestBudget: { perHour: 1000 },
+    supportsModifiedSince: true,
+  };
+  constructor(private readonly data: NormalizedOpportunity[]) {}
+  async search(params: OpportunitySearchParams): Promise<NormalizedOpportunity[]> {
+    return this.data.slice(params.offset, params.offset + params.limit);
+  }
+  async fetchDescription(): Promise<string> {
+    return '';
+  }
+}
+
+class FakeStore implements IngestStore {
+  byId = new Map<string, string>();
+  finished: { status: string; opportunitiesUpserted: number; opportunitiesNew: number }[] = [];
+  async lastSuccessfulWindowTo(): Promise<Date | null> {
+    return null;
+  }
+  async startRun(): Promise<string> {
+    return 'run1';
+  }
+  async upsertOpportunity(o: NormalizedOpportunity, hash: string): Promise<UpsertResult> {
+    const prev = this.byId.get(o.externalNoticeId);
+    this.byId.set(o.externalNoticeId, hash);
+    if (prev === undefined) return 'new';
+    return prev === hash ? 'unchanged' : 'updated';
+  }
+  async finishRun(_id: string, fields: { status: string; opportunitiesUpserted: number; opportunitiesNew: number }) {
+    this.finished.push(fields);
+  }
+}
+
+describe('runIngest', () => {
+  it('pages through the source and counts new opportunities', async () => {
+    const store = new FakeStore();
+    const source = new FakeSource([opp('n1'), opp('n2'), opp('n3')]);
+    const summary = await runIngest({ store, source, pageSize: 2 });
+
+    expect(summary.status).toBe('success');
+    expect(summary.pages).toBe(2); // [n1,n2] then [n3]
+    expect(summary.fetched).toBe(3);
+    expect(summary.upserted).toBe(3);
+    expect(summary.newCount).toBe(3);
+    expect(store.finished[0].status).toBe('success');
+  });
+
+  it('treats unchanged opportunities as no-ops on re-run (dedupe by hash)', async () => {
+    const store = new FakeStore();
+    const data = [opp('n1'), opp('n2')];
+    await runIngest({ store, source: new FakeSource(data), pageSize: 50 });
+    const second = await runIngest({ store, source: new FakeSource(data), pageSize: 50 });
+
+    expect(second.upserted).toBe(0);
+    expect(second.newCount).toBe(0);
+  });
+
+  it('marks modified opportunities as updated, not new', async () => {
+    const store = new FakeStore();
+    await runIngest({ store, source: new FakeSource([opp('n1')]), pageSize: 50 });
+    const second = await runIngest({
+      store,
+      source: new FakeSource([opp('n1', { id: 'n1', changed: true })]),
+      pageSize: 50,
+    });
+
+    expect(second.newCount).toBe(0);
+    expect(second.upserted).toBe(1);
+  });
+});

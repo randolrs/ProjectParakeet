@@ -1,0 +1,43 @@
+CREATE TABLE "ingest_runs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"source" text NOT NULL,
+	"jurisdiction" text DEFAULT 'federal' NOT NULL,
+	"status" text DEFAULT 'running' NOT NULL,
+	"window_from" timestamp with time zone,
+	"window_to" timestamp with time zone,
+	"requests_consumed" integer DEFAULT 0 NOT NULL,
+	"opportunities_upserted" integer DEFAULT 0 NOT NULL,
+	"opportunities_new" integer DEFAULT 0 NOT NULL,
+	"descriptions_fetched" integer DEFAULT 0 NOT NULL,
+	"error" text,
+	"started_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"finished_at" timestamp with time zone
+);
+--> statement-breakpoint
+CREATE TABLE "opportunities" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"jurisdiction" text DEFAULT 'federal' NOT NULL,
+	"external_notice_id" text NOT NULL,
+	"solicitation_number" text,
+	"title" text NOT NULL,
+	"department" text,
+	"sub_tier" text,
+	"office" text,
+	"notice_type" text NOT NULL,
+	"naics_code" text,
+	"psc_code" text,
+	"set_aside_type" text,
+	"posted_date" timestamp with time zone,
+	"response_deadline" timestamp with time zone,
+	"place_of_performance" jsonb,
+	"description_url" text,
+	"description_text" text,
+	"point_of_contact" jsonb,
+	"award" jsonb,
+	"raw_data" jsonb NOT NULL,
+	"raw_data_hash" text NOT NULL,
+	"first_fetched_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"last_fetched_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"is_active" boolean DEFAULT true NOT NULL,
+	CONSTRAINT "opportunities_jurisdiction_external_id_unique" UNIQUE("jurisdiction","external_notice_id")
+);

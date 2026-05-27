@@ -2,13 +2,21 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '@/db/schema';
 
-// Server-only Supabase Postgres access via Drizzle. Never import this into a
-// Client Component. `prepare: false` is required for Supabase's transaction
-// pooler (pgbouncer); use the direct connection string for migrations.
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error('DATABASE_URL is not set.');
+// Server-only Postgres access via Drizzle, for TRUSTED batch jobs (ingest,
+// scoring) that operate across all users — never for user-scoped reads, which
+// go through the RLS-enforced Supabase client. Lazily initialized so importing
+// this module never throws at build/import time when DATABASE_URL is absent.
+// `prepare: false` is required for Supabase's transaction pooler.
+let instance: ReturnType<typeof create> | null = null;
+
+function create() {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) throw new Error('DATABASE_URL is not set.');
+  const client = postgres(connectionString, { prepare: false });
+  return drizzle(client, { schema });
 }
 
-export const client = postgres(connectionString, { prepare: false });
-export const db = drizzle(client, { schema });
+export function getDb() {
+  if (!instance) instance = create();
+  return instance;
+}
