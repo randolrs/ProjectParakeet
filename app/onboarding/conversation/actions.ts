@@ -21,9 +21,10 @@ export type TurnResult =
   | { type: 'message'; content: string; suggestions: string[] }
   | { type: 'complete' };
 
-// Primer (4 questions) + their answers. Past this, force the closing tool call
-// so the interview can't run forever.
-const MAX_USER_TURNS_BEFORE_FORCE = 5;
+// The opening (walk-away) question is pre-asked client-side, so the LLM drives
+// topics 2-4. Normal completion lands at 4 answers; this backstop forces the
+// closing tool call if follow-ups push it longer, so the interview can't run forever.
+const MAX_USER_TURNS_BEFORE_FORCE = 6;
 
 export async function conversationTurn(history: ChatMessage[]): Promise<TurnResult> {
   const supabase = await createClient();

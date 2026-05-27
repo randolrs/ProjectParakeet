@@ -4,17 +4,22 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { conversationTurn, type ChatMessage } from '@/app/onboarding/conversation/actions';
 
-// Internal kickoff message; hidden from the rendered transcript.
-const PRIMER = 'Begin the interview.';
-
-export function ConversationChat() {
+export function ConversationChat({
+  initialMessage,
+  initialSuggestions,
+}: {
+  initialMessage: string;
+  initialSuggestions: string[];
+}) {
   const router = useRouter();
-  const [history, setHistory] = useState<ChatMessage[]>([]);
+  // Seeded with the first question so the page is never blank / round-tripping.
+  const [history, setHistory] = useState<ChatMessage[]>([
+    { role: 'assistant', content: initialMessage },
+  ]);
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const started = useRef(false);
+  const [suggestions, setSuggestions] = useState<string[]>(initialSuggestions);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   async function advance(next: ChatMessage[]) {
@@ -45,14 +50,6 @@ export function ConversationChat() {
   }
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    void advance([{ role: 'user', content: PRIMER }]);
-    // advance is stable for the initial kickoff; intentionally run once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [history, pending]);
 
@@ -60,8 +57,6 @@ export function ConversationChat() {
     e.preventDefault();
     send(input);
   }
-
-  const visible = history.slice(1); // hide the primer
 
   return (
     <main className="mx-auto flex min-h-[100dvh] w-full max-w-2xl flex-col gap-4 p-6">
@@ -73,7 +68,7 @@ export function ConversationChat() {
       </header>
 
       <div className="flex flex-1 flex-col gap-3 pb-4">
-        {visible.map((m, i) => (
+        {history.map((m, i) => (
           <div key={i} className={m.role === 'assistant' ? 'flex justify-start' : 'flex justify-end'}>
             <div
               className={

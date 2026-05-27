@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { ConversationChat } from '@/components/conversation-chat';
+import { FIRST_QUESTION } from '@/lib/llm/prompts/federal/onboarding-conversation';
 import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
@@ -11,5 +12,10 @@ export default async function ConversationPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  return <ConversationChat />;
+  return (
+    <ConversationChat
+      initialMessage={FIRST_QUESTION.message}
+      initialSuggestions={FIRST_QUESTION.suggestions}
+    />
+  );
 }
