@@ -2,6 +2,41 @@
 
 _Last updated: 2026-05-26_
 
+## Current milestone: M2 — Conversational onboarding (CODE COMPLETE, awaiting founder verification)
+
+### Done (code + DB)
+- Website front door (FireCrawl): optional "paste your site" on `/onboarding` crawls via a
+  `CompanyEnrichmentSource` interface (FireCrawl impl, Zod-normalized), then Sonnet 4.6 extracts
+  NAICS/PSC/capability_summary/differentiators via structured output. Cached in `company_enrichment`
+  (never re-crawled); NAICS/PSC pre-fill the onboarding form.
+- Conversational onboarding: 4-question judgment interview (Sonnet 4.6) — walk-away signals,
+  incumbent-displacement appetite, teaming posture, effort vs. P(win) — warm-started from the form
+  + crawl. Terminates via a strict `record_bid_profile` tool with a forced-extraction fallback so it
+  always closes. Persists `bid_profile` via the RLS-enforced client; capability_summary +
+  differentiators carried from enrichment.
+- Flow: `/onboarding` (form, optionally autofilled) -> `/onboarding/conversation` -> `/dashboard`
+  (now shows the captured bid/no-bid profile).
+- LLM client wrapper: SDK retry + 60s timeout + structured token/latency logging; prompts as
+  reviewed consts in `/lib/llm/prompts/federal`.
+- Data model (committed `a460190`): `bid_profile` + `company_enrichment`, owner-scoped RLS, applied.
+- Methodology signed off by founder: 4 questions (Q1/won_setups + the adaptive probe out of v1 scope).
+- Gates: lint clean, 36 tests pass (3 skipped) incl. LLM-output-parsing + prompt-assembly tests;
+  local + Vercel build green.
+
+### Founder config (done)
+- `ANTHROPIC_API_KEY` + `FIRECRAWL_API_KEY` added to Vercel.
+
+### M2 acceptance criteria
+- [x] LLM flow produces `bid_profile` JSON (validated, persisted)
+- [x] Prompts target the gap in the competitor's structured-filter qualification (tacit judgment)
+- [x] Deployed preview builds
+- [ ] Founder-verified (run website autofill + the 4-question interview on the preview)
+
+### Next
+Founder verifies end-to-end on the preview: paste a company URL -> NAICS/PSC autofill, save
+preferences, complete the 4-question interview, confirm the bid/no-bid profile renders on the
+dashboard. Then M2 closes and M3 (daily ingest) begins.
+
 ## Milestone M1 — Auth + deterministic onboarding (COMPLETE, founder sign-off 2026-05-26)
 
 ### Done (code + DB)
