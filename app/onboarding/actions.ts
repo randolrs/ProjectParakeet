@@ -1,10 +1,59 @@
 'use server';
 
 import { redirect } from 'next/navigation';
+import { z } from 'zod';
+import { extractCompany, getEnrichmentSource } from '@/lib/onboarding/enrichment';
 import { parsePreferencesForm } from '@/lib/onboarding/preferences';
 import { createClient } from '@/lib/supabase/server';
 
 export type OnboardingState = { error?: string };
+export type EnrichState = { error?: string };
+
+const websiteUrlSchema = z
+  .string()
+  .trim()
+  .url()
+  .refine((u) => /^https?:\/\//i.test(u), 'Include http(s)://');
+
+// Optional onboarding front door: crawl the company site, extract a structured
+// profile, and cache it. The onboarding form reads the cache to pre-fill.
+export async function enrichFromWebsite(
+  _prev: EnrichState,
+  formData: FormData,
+): Promise<EnrichState> {
+  const parsed = websiteUrlSchema.safeParse(formData.get('websiteUrl'));
+  if (!parsed.success) return { error: 'Enter a valid website URL (including https://).' };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
+
+  let markdown = '';
+  let extracted;
+  try {
+    markdown = await getEnrichmentSource().scrape(parsed.data);
+    extracted = await extractCompany(markdown);
+  } catch {
+    return { error: 'Could not read that site. You can fill the form in manually below.' };
+  }
+
+  const { error } = await supabase.from('company_enrichment').upsert(
+    {
+      user_id: user.id,
+      website_url: parsed.data,
+      raw_markdown: markdown.slice(0, 100_000),
+      extracted,
+      source: 'firecrawl',
+      fetched_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' },
+  );
+  if (error) return { error: error.message };
+
+  redirect('/onboarding');
+}
 
 export async function saveCompanyPreferences(
   _prev: OnboardingState,
@@ -43,5 +92,5 @@ export async function saveCompanyPreferences(
   );
   if (error) return { error: error.message };
 
-  redirect('/dashboard');
+  redirect('/onboarding/conversation');
 }

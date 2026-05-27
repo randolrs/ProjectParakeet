@@ -12,11 +12,10 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: prefs } = await supabase
-    .from('company_preferences')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle();
+  const [{ data: prefs }, { data: bid }] = await Promise.all([
+    supabase.from('company_preferences').select('*').eq('user_id', user.id).maybeSingle(),
+    supabase.from('bid_profile').select('*').eq('user_id', user.id).maybeSingle(),
+  ]);
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-8">
@@ -58,6 +57,25 @@ export default async function DashboardPage() {
           </Link>{' '}
           to start receiving digests.
         </p>
+      )}
+
+      {bid && (
+        <section className="flex flex-col gap-2 border-t border-zinc-200 pt-4 text-sm dark:border-zinc-800">
+          <h2 className="font-semibold">Your bid/no-bid profile</h2>
+          <dl className="grid grid-cols-[12rem_1fr] gap-y-1">
+            <dt className="text-zinc-500">Walk-away signals</dt>
+            <dd>{(bid.walk_away_signals ?? []).join('; ') || '—'}</dd>
+            <dt className="text-zinc-500">Incumbent appetite</dt>
+            <dd>{bid.incumbent_displacement_appetite ?? '—'}</dd>
+            <dt className="text-zinc-500">Teaming posture</dt>
+            <dd>{bid.teaming_posture ?? '—'}</dd>
+            <dt className="text-zinc-500">Effort vs. P(win)</dt>
+            <dd>{bid.response_effort_tolerance ?? '—'}</dd>
+          </dl>
+          <Link href="/onboarding/conversation" className="underline">
+            Redo the interview
+          </Link>
+        </section>
       )}
     </main>
   );

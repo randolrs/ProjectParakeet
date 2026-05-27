@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation';
+import { EnrichForm } from '@/components/enrich-form';
 import {
   OnboardingForm,
   type OnboardingDefaults,
   type OnboardingOptions,
 } from '@/components/onboarding-form';
+import { ExtractedCompanySchema } from '@/lib/onboarding/enrichment';
 import {
   CERTIFICATIONS,
   NOTICE_TYPES,
@@ -41,11 +43,17 @@ export default async function OnboardingPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { data: prefs } = await supabase
-    .from('company_preferences')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle();
+  const [{ data: prefs }, { data: enr }] = await Promise.all([
+    supabase.from('company_preferences').select('*').eq('user_id', user.id).maybeSingle(),
+    supabase
+      .from('company_enrichment')
+      .select('website_url, extracted')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+  ]);
+
+  const extracted = ExtractedCompanySchema.partial().safeParse(enr?.extracted);
+  const suggestion = extracted.success ? extracted.data : undefined;
 
   const options: OnboardingOptions = {
     certifications: CERTIFICATIONS,
@@ -78,7 +86,16 @@ export default async function OnboardingPage() {
         agenciesExcluded: (prefs.agencies_excluded ?? []).join('\n'),
         noticeTypes: prefs.notice_types ?? [],
       }
-    : EMPTY;
+    : {
+        ...EMPTY,
+        primaryNaics: (suggestion?.naics ?? []).join(', '),
+        pscCodes: (suggestion?.psc ?? []).join(', '),
+      };
 
-  return <OnboardingForm options={options} defaults={defaults} />;
+  return (
+    <>
+      <EnrichForm websiteUrl={enr?.website_url ?? ''} capabilitySummary={suggestion?.capabilitySummary ?? ''} />
+      <OnboardingForm options={options} defaults={defaults} />
+    </>
+  );
 }
