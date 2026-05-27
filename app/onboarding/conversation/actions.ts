@@ -51,6 +51,7 @@ export async function conversationTurn(history: ChatMessage[]): Promise<TurnResu
       tool_choice: forceTool
         ? { type: 'tool', name: BID_PROFILE_TOOL.name }
         : { type: 'auto' },
+      output_config: { effort: 'low' },
       messages,
     }),
   );
