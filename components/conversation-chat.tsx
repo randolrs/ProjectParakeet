@@ -13,12 +13,14 @@ export function ConversationChat() {
   const [input, setInput] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const started = useRef(false);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   async function advance(next: ChatMessage[]) {
     setHistory(next);
     setError(null);
+    setSuggestions([]);
     setPending(true);
     try {
       const res = await conversationTurn(next);
@@ -27,11 +29,19 @@ export function ConversationChat() {
         return;
       }
       setHistory([...next, { role: 'assistant', content: res.content }]);
+      setSuggestions(res.suggestions);
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {
       setPending(false);
     }
+  }
+
+  function send(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || pending) return;
+    setInput('');
+    void advance([...history, { role: 'user', content: trimmed }]);
   }
 
   useEffect(() => {
@@ -48,10 +58,7 @@ export function ConversationChat() {
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const text = input.trim();
-    if (!text || pending) return;
-    setInput('');
-    void advance([...history, { role: 'user', content: text }]);
+    send(input);
   }
 
   const visible = history.slice(1); // hide the primer
@@ -84,6 +91,20 @@ export function ConversationChat() {
             <div className="rounded-2xl bg-zinc-100 px-4 py-2 text-sm text-zinc-400 dark:bg-zinc-800">
               …
             </div>
+          </div>
+        )}
+        {!pending && suggestions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => send(s)}
+                className="rounded-full border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                {s}
+              </button>
+            ))}
           </div>
         )}
         <div ref={endRef} />

@@ -49,3 +49,35 @@ export const BID_PROFILE_TOOL = {
     additionalProperties: false,
   },
 } satisfies Anthropic.Tool;
+
+// The model emits each interview question through this tool so the UI can render
+// tappable, NAICS-tailored quick replies alongside free-text input.
+export const AskQuestionSchema = z.object({
+  message: z.string(),
+  suggestions: z.array(z.string()),
+});
+export type AskQuestionInput = z.infer<typeof AskQuestionSchema>;
+
+export const ASK_QUESTION_TOOL = {
+  name: 'ask_question',
+  description:
+    'Ask the contractor the next interview question. Always provide 2-4 short, tappable candidate answers tailored to their line of work; the user may also type their own.',
+  strict: true,
+  input_schema: {
+    type: 'object',
+    properties: {
+      message: {
+        type: 'string',
+        description: 'The single question to show the user, in a warm conversational voice.',
+      },
+      suggestions: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          "2-4 short example answers (a few words each), tailored to the contractor's NAICS / industry.",
+      },
+    },
+    required: ['message', 'suggestions'],
+    additionalProperties: false,
+  },
+} satisfies Anthropic.Tool;

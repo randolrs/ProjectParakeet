@@ -7,12 +7,19 @@ import {
   ONBOARDING_CONVERSATION_PROMPT,
   buildConversationContext,
 } from '@/lib/llm/prompts/federal/onboarding-conversation';
-import { BID_PROFILE_TOOL, BidProfileSchema } from '@/lib/onboarding/bid-profile';
+import {
+  ASK_QUESTION_TOOL,
+  AskQuestionSchema,
+  BID_PROFILE_TOOL,
+  BidProfileSchema,
+} from '@/lib/onboarding/bid-profile';
 import { ExtractedCompanySchema } from '@/lib/onboarding/enrichment';
 import { createClient } from '@/lib/supabase/server';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
-export type TurnResult = { type: 'message'; content: string } | { type: 'complete' };
+export type TurnResult =
+  | { type: 'message'; content: string; suggestions: string[] }
+  | { type: 'complete' };
 
 // Primer (4 questions) + their answers. Past this, force the closing tool call
 // so the interview can't run forever.
@@ -47,20 +54,22 @@ export async function conversationTurn(history: ChatMessage[]): Promise<TurnResu
       model: MODELS.onboarding,
       max_tokens: 1024,
       system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
-      tools: [BID_PROFILE_TOOL],
+      tools: [ASK_QUESTION_TOOL, BID_PROFILE_TOOL],
       tool_choice: forceTool
         ? { type: 'tool', name: BID_PROFILE_TOOL.name }
-        : { type: 'auto' },
+        : { type: 'any', disable_parallel_tool_use: true },
       output_config: { effort: 'low' },
       messages,
     }),
   );
 
-  const toolUse = res.content.find(
+  const toolUses = res.content.filter(
     (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
   );
-  if (toolUse) {
-    const parsed = BidProfileSchema.safeParse(toolUse.input);
+
+  const record = toolUses.find((t) => t.name === BID_PROFILE_TOOL.name);
+  if (record) {
+    const parsed = BidProfileSchema.safeParse(record.input);
     if (parsed.success) {
       const { error } = await supabase.from('bid_profile').upsert(
         {
@@ -81,10 +90,27 @@ export async function conversationTurn(history: ChatMessage[]): Promise<TurnResu
     }
   }
 
+  const ask = toolUses.find((t) => t.name === ASK_QUESTION_TOOL.name);
+  if (ask) {
+    const parsed = AskQuestionSchema.safeParse(ask.input);
+    if (parsed.success) {
+      return {
+        type: 'message',
+        content: parsed.data.message,
+        suggestions: parsed.data.suggestions.slice(0, 4),
+      };
+    }
+  }
+
+  // Fallback (should not occur with forced tool use): surface any text.
   const text = res.content
     .filter((b): b is Anthropic.TextBlock => b.type === 'text')
     .map((b) => b.text)
     .join('\n')
     .trim();
-  return { type: 'message', content: text || 'Could you say a little more about that?' };
+  return {
+    type: 'message',
+    content: text || 'Could you say a little more about that?',
+    suggestions: [],
+  };
 }
