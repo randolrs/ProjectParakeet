@@ -39,10 +39,18 @@ export interface SourceCapabilities {
   supportsModifiedSince: boolean;
 }
 
+export interface SearchPage {
+  items: NormalizedOpportunity[];
+  // True iff the source can return more results past this page. The ingest
+  // uses this rather than `items.length < limit`, because some sources
+  // (e.g. GovConAPI Free) silently cap below the requested limit.
+  hasNext: boolean;
+}
+
 export interface OpportunitySource {
   readonly name: string; // 'govconapi' | 'sam-direct'
   readonly capabilities: SourceCapabilities;
-  search(params: OpportunitySearchParams): Promise<NormalizedOpportunity[]>;
+  search(params: OpportunitySearchParams): Promise<SearchPage>;
   // Passthrough returning existing text when descriptionsInline; counts
   // against budget otherwise.
   fetchDescription(opp: NormalizedOpportunity): Promise<string>;

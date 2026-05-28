@@ -99,7 +99,7 @@ export async function runIngest(opts: IngestOptions): Promise<IngestSummary> {
 
   try {
     while (requestsConsumed < ceiling && pages < maxPages) {
-      const batch = await source.search({
+      const page = await source.search({
         postedFrom: toMmddyyyy(windowFrom),
         postedTo: toMmddyyyy(windowTo),
         noticeTypes: [...strategy.vocabulary.noticeTypes],
@@ -108,10 +108,10 @@ export async function runIngest(opts: IngestOptions): Promise<IngestSummary> {
       });
       requestsConsumed += 1;
       pages += 1;
-      if (batch.length === 0) break;
-      fetched += batch.length;
+      if (page.items.length === 0) break;
+      fetched += page.items.length;
 
-      for (const raw of batch) {
+      for (const raw of page.items) {
         const opp = strategy.normalize(raw);
         // Drop out-of-scope notice types (Justification, surplus, etc.) before
         // they ever hit Postgres — they violate the actionable-digest premise.
@@ -130,8 +130,9 @@ export async function runIngest(opts: IngestOptions): Promise<IngestSummary> {
         if (result === 'new') newCount += 1;
       }
 
-      if (batch.length < pageSize) break; // last page
-      offset += pageSize;
+      if (!page.hasNext) break; // trust the source — don't assume by item count
+      // Advance by the number actually returned (the source may cap below limit).
+      offset += page.items.length;
     }
 
     await opts.store.finishRun(runId, {

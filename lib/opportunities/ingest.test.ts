@@ -4,6 +4,7 @@ import type {
   NormalizedOpportunity,
   OpportunitySearchParams,
   OpportunitySource,
+  SearchPage,
 } from './sources';
 
 function opp(id: string, rawData: Record<string, unknown> = { id }): NormalizedOpportunity {
@@ -37,8 +38,9 @@ class FakeSource implements OpportunitySource {
     supportsModifiedSince: true,
   };
   constructor(private readonly data: NormalizedOpportunity[]) {}
-  async search(params: OpportunitySearchParams): Promise<NormalizedOpportunity[]> {
-    return this.data.slice(params.offset, params.offset + params.limit);
+  async search(params: OpportunitySearchParams): Promise<SearchPage> {
+    const items = this.data.slice(params.offset, params.offset + params.limit);
+    return { items, hasNext: params.offset + items.length < this.data.length };
   }
   async fetchDescription(): Promise<string> {
     return '';
@@ -87,6 +89,33 @@ describe('runIngest', () => {
 
     expect(second.upserted).toBe(0);
     expect(second.newCount).toBe(0);
+  });
+
+  it('keeps paginating when the source caps below the requested limit (Free-tier regression)', async () => {
+    // Mirrors GovConAPI Free tier: requested limit=100, source returns 2/page max
+    // with hasNext=true until the dataset is exhausted. The old `items.length <
+    // pageSize` heuristic incorrectly concluded "last page" on every call.
+    const data = Array.from({ length: 5 }, (_, i) => opp(`p${i + 1}`));
+    const cappedSource: OpportunitySource = {
+      name: 'capped',
+      capabilities: {
+        descriptionsInline: true,
+        requestBudget: { perHour: 1000 },
+        supportsModifiedSince: true,
+      },
+      async search(params): Promise<SearchPage> {
+        const items = data.slice(params.offset, params.offset + Math.min(2, params.limit));
+        return { items, hasNext: params.offset + items.length < data.length };
+      },
+      async fetchDescription() {
+        return '';
+      },
+    };
+    const store = new FakeStore();
+    const summary = await runIngest({ store, source: cappedSource, pageSize: 100 });
+    expect(summary.pages).toBe(3); // 2 + 2 + 1
+    expect(summary.fetched).toBe(5);
+    expect(summary.newCount).toBe(5);
   });
 
   it('marks modified opportunities as updated, not new', async () => {

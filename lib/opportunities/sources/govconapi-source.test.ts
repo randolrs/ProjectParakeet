@@ -25,21 +25,55 @@ const baseOpp = (descriptionText: string | null) =>
   });
 
 describe('GovConApiSource', () => {
-  it('declares descriptionsInline=true and a per-hour budget', () => {
+  it('declares descriptionsInline=false (search returns description_text only for Award Notices) and a per-hour budget', () => {
     const source = new GovConApiSource();
-    expect(source.capabilities.descriptionsInline).toBe(true);
+    expect(source.capabilities.descriptionsInline).toBe(false);
     expect(source.capabilities.requestBudget.perHour).toBe(1000);
   });
 
-  it('fetchDescription passes through the inline text without spending budget', async () => {
+  it('fetchDescription passes through inline text when search() did populate it (Award Notices)', async () => {
     const source = new GovConApiSource();
     const text = await source.fetchDescription(baseOpp('Inline description text.'));
     expect(text).toBe('Inline description text.');
   });
 
-  it('fetchDescription throws if inline text is unexpectedly missing', async () => {
-    const source = new GovConApiSource();
-    await expect(source.fetchDescription(baseOpp(null))).rejects.toThrow();
+  describe('fetchDescription detail-endpoint fallback', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    });
+
+    it('fetches the detail endpoint when description_text was empty on the search response', async () => {
+      vi.stubEnv('GOVCONAPI_KEY', 'test-key');
+      const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            opportunity: {
+              notice_id: 'gc-1',
+              description_text: 'Detail-endpoint description.',
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+      const text = await new GovConApiSource().fetchDescription(baseOpp(null));
+      expect(text).toBe('Detail-endpoint description.');
+      expect(String(fetchMock.mock.calls[0][0])).toContain(
+        'https://govconapi.com/api/v1/opportunities/gc-1',
+      );
+    });
+
+    it('throws if even the detail endpoint has no description_text', async () => {
+      vi.stubEnv('GOVCONAPI_KEY', 'test-key');
+      vi.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ opportunity: { notice_id: 'gc-1' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+      await expect(new GovConApiSource().fetchDescription(baseOpp(null))).rejects.toThrow();
+    });
   });
 
   describe('search', () => {
@@ -107,13 +141,14 @@ describe('GovConApiSource', () => {
         pagination: { limit: 20, offset: 0, total: 1, has_next: false },
       });
 
-      const [o] = await new GovConApiSource().search({
+      const { items } = await new GovConApiSource().search({
         postedFrom: '11/01/2025',
         postedTo: '11/02/2025',
         limit: 20,
         offset: 0,
       });
 
+      const o = items[0];
       expect(o.externalNoticeId).toBe('abc123def456');
       expect(o.title).toBe('IT Services Contract');
       expect(o.noticeType).toBe('Solicitation');
@@ -129,6 +164,22 @@ describe('GovConApiSource', () => {
       expect(o.rawData.award_amount).toBe(1500000);
     });
 
+    it('returns hasNext straight from pagination.has_next (do not infer from item count)', async () => {
+      vi.stubEnv('GOVCONAPI_KEY', 'test-key');
+      mockSearchResponse({
+        data: [{ notice_id: 'x', title: 'one' }],
+        pagination: { has_next: true, limit: 50, offset: 0 },
+      });
+      const page = await new GovConApiSource().search({
+        postedFrom: '05/01/2026',
+        postedTo: '05/02/2026',
+        limit: 100, // intentionally larger than what the source will return
+        offset: 0,
+      });
+      expect(page.hasNext).toBe(true);
+      expect(page.items).toHaveLength(1);
+    });
+
     it('handles missing and unexpected field shapes without rejecting the batch', async () => {
       vi.stubEnv('GOVCONAPI_KEY', 'test-key');
       mockSearchResponse({
@@ -142,17 +193,17 @@ describe('GovConApiSource', () => {
         ],
       });
 
-      const out = await new GovConApiSource().search({
+      const { items } = await new GovConApiSource().search({
         postedFrom: '05/01/2026',
         postedTo: '05/02/2026',
         limit: 20,
         offset: 0,
       });
 
-      expect(out).toHaveLength(3);
-      expect(out[0].noticeType).toBe('Unknown'); // ingest in-scope filter drops it
-      expect(out[1].pscCode).toBe('R425');
-      expect(out[2].pscCode).toBeNull();
+      expect(items).toHaveLength(3);
+      expect(items[0].noticeType).toBe('Unknown'); // ingest in-scope filter drops it
+      expect(items[1].pscCode).toBe('R425');
+      expect(items[2].pscCode).toBeNull();
     });
   });
 });

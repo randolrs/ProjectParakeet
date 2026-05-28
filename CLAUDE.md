@@ -68,7 +68,7 @@ One principle holds for BOTH sources and is non-negotiable:
 
 Everything else is source-specific and MUST be read from `source.capabilities`, never hardcoded:
 
-- **Descriptions.** If `capabilities.descriptionsInline` is true (GovConAPI), `search()` already carries the text — do nothing extra. If false (SAM direct), descriptions are a separate fetch per opportunity and the real budget pressure: fetch only for opportunities matching ≥1 active user's eligibility filter; cache permanently; re-fetch only on `raw_data_hash` change; track count in `ingest_runs` and defer past a safe ceiling.
+- **Descriptions.** Both sources currently report `descriptionsInline: false` (see GovConAPI note below). Treat descriptions as a separate budgeted fetch — the real budget pressure: fetch only for opportunities matching ≥1 active user's eligibility filter; cache permanently; re-fetch only on `raw_data_hash` change; track count in `ingest_runs` and defer past a safe ceiling.
 - **Request budget.** Read `capabilities.requestBudget`. The ingest scheduler respects whatever the active source reports — GovConAPI's per-hour ceiling or SAM's per-day ceiling — without code changes. Log consumed requests every run regardless of source.
 - **Migration.** Swapping GovConAPI → SAM direct is an env flip plus the SAM impl conforming to the interface (built in M0). No downstream change. If the user base outgrows SAM's 1,000/day, the path is a federal system account (10,000/day) — flag it, don't silently degrade.
 
@@ -94,7 +94,7 @@ Implementations live in `/lib/opportunities/sources/`. Each conforms to `Opportu
 
 ### GovConApiSource (v1 primary)
 - Bearer-token auth: `Authorization: Bearer ${GOVCONAPI_KEY}`
-- Returns `description_text` inline → `descriptionsInline: true`
+- `descriptionsInline: false` (verified live 2026-05-28): `/opportunities/search` only fills `description_text` for Award Notices; for Solicitation / Combined Synopsis / Sources Sought / Special, `description_text` is null and the actual text lives behind `description_url` + the `/opportunities/{id}` detail endpoint. So fetchDescription falls back to the detail endpoint and spends budget — same cost shape as SAM direct
 - ~1,000/hour throughput on the dev tier; `requestBudget: { perHour: 1000 }`
 - KNOWN RISK to keep in view: this is a small third-party vendor reselling free public data. Treat it as scaffolding for speed, not a permanent dependency. Read their ToS for any no-competing/no-derivative-service clause; if present, SAM direct is the true production source.
 

@@ -5,6 +5,7 @@ import {
   type NormalizedOpportunity,
   type OpportunitySearchParams,
   type OpportunitySource,
+  type SearchPage,
   type SourceCapabilities,
 } from './types';
 
@@ -105,7 +106,7 @@ export class SamDirectSource implements OpportunitySource {
     supportsModifiedSince: false,
   };
 
-  async search(params: OpportunitySearchParams): Promise<NormalizedOpportunity[]> {
+  async search(params: OpportunitySearchParams): Promise<SearchPage> {
     const apiKey = requireKey();
     const query = new URLSearchParams({
       api_key: apiKey,
@@ -127,8 +128,12 @@ export class SamDirectSource implements OpportunitySource {
       context: { source: this.name, op: 'search' },
     });
     const parsed = SamSearchResponseSchema.parse(raw);
-    const items = parsed.opportunitiesData ?? [];
-    return items.map((item) => this.normalize(item));
+    const rawItems = parsed.opportunitiesData ?? [];
+    const items = rawItems.map((item) => this.normalize(item));
+    const total = parsed.totalRecords ?? 0;
+    const offset = parsed.offset ?? params.offset;
+    const hasNext = total > offset + items.length;
+    return { items, hasNext };
   }
 
   private normalize(item: unknown): NormalizedOpportunity {

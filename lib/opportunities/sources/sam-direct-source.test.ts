@@ -47,7 +47,7 @@ describe('SamDirectSource (fixture)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(SAM_FIXTURE)));
 
     const source = new SamDirectSource();
-    const results = await source.search({
+    const { items } = await source.search({
       postedFrom: '01/01/2026',
       postedTo: '01/02/2026',
       noticeTypes: ['Solicitation'],
@@ -56,8 +56,8 @@ describe('SamDirectSource (fixture)', () => {
       offset: 0,
     });
 
-    expect(results).toHaveLength(1);
-    const opp = results[0];
+    expect(items).toHaveLength(1);
+    const opp = items[0];
     expect(() => NormalizedOpportunitySchema.parse(opp)).not.toThrow();
 
     expect(opp.jurisdiction).toBe('federal');
@@ -125,7 +125,7 @@ describe('SamDirectSource (real)', () => {
       const source = new SamDirectSource();
       const to = new Date();
       const from = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
-      const results = await source.search({
+      const { items } = await source.search({
         postedFrom: fmt(from),
         postedTo: fmt(to),
         noticeTypes: [
@@ -137,8 +137,8 @@ describe('SamDirectSource (real)', () => {
         limit: 10,
         offset: 0,
       });
-      expect(Array.isArray(results)).toBe(true);
-      for (const opp of results) {
+      expect(Array.isArray(items)).toBe(true);
+      for (const opp of items) {
         expect(() => NormalizedOpportunitySchema.parse(opp)).not.toThrow();
         expect(opp.descriptionText).toBeNull();
       }

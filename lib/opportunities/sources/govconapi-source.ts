@@ -4,6 +4,7 @@ import {
   type NormalizedOpportunity,
   type OpportunitySearchParams,
   type OpportunitySource,
+  type SearchPage,
   type SourceCapabilities,
 } from './types';
 
@@ -109,14 +110,20 @@ function toNormalized(item: GovConApiOpportunity): NormalizedOpportunity {
 export class GovConApiSource implements OpportunitySource {
   readonly name = 'govconapi';
   readonly capabilities: SourceCapabilities = {
-    descriptionsInline: true,
+    // Empirical (2026-05-28): the /opportunities/search endpoint only fills
+    // description_text for Award Notices; for Solicitation / Combined /
+    // Sources Sought / Special, description_text is null and the actual text
+    // lives behind description_url + the /opportunities/{id} detail endpoint.
+    // Treat descriptions as a separate budgeted fetch — same cost shape as
+    // SAM direct — and gate fetchDescription behind eligibility (M4).
+    descriptionsInline: false,
     requestBudget: { perHour: 1000 },
     // GovConAPI does not expose a documented modified-since filter on
     // /opportunities/search; we re-window via date_from each run instead.
     supportsModifiedSince: false,
   };
 
-  async search(params: OpportunitySearchParams): Promise<NormalizedOpportunity[]> {
+  async search(params: OpportunitySearchParams): Promise<SearchPage> {
     const url = new URL(`${BASE_URL}/opportunities/search`);
     // date_from + date_to satisfy the API's "at least one meaningful filter"
     // rule. notice_type is NOT filtered server-side here — the ingest's
@@ -145,15 +152,46 @@ export class GovConApiSource implements OpportunitySource {
     );
 
     const parsed = GovConApiResponseSchema.parse(raw);
-    return parsed.data.map(toNormalized);
+    const items = parsed.data.map(toNormalized);
+    // The Free tier silently caps below the requested limit, so we must trust
+    // pagination.has_next over `items.length < params.limit`.
+    const hasNext = parsed.pagination?.has_next ?? false;
+    return { items, hasNext };
   }
 
-  // Descriptions are inline for GovConAPI: search() already populated
-  // descriptionText, so this is a passthrough that never spends budget.
+  // Descriptions live on /opportunities/{notice_id} for the bidable notice
+  // types (search() only populates description_text for Award Notices).
+  // Callers MUST gate this behind eligibility + cache — it spends budget.
   async fetchDescription(opp: NormalizedOpportunity): Promise<string> {
-    if (opp.descriptionText !== null) return opp.descriptionText;
-    throw new Error(
-      `GovConApiSource expected inline descriptionText for ${opp.externalNoticeId}, but it was null.`,
+    if (opp.descriptionText) return opp.descriptionText;
+    const url = `${BASE_URL}/opportunities/${encodeURIComponent(opp.externalNoticeId)}`;
+    const raw = await fetchJson(
+      url,
+      { method: 'GET', headers: authHeaders() },
+      {
+        timeoutMs: 30_000,
+        retries: 3,
+        context: {
+          source: 'govconapi',
+          endpoint: 'opportunities/{id}',
+          noticeId: opp.externalNoticeId,
+        },
+      },
     );
+    const DetailSchema = z
+      .object({
+        opportunity: z
+          .object({ description_text: z.string().nullable().optional() })
+          .passthrough(),
+      })
+      .passthrough();
+    const parsed = DetailSchema.safeParse(raw);
+    const text = parsed.success ? asString(parsed.data.opportunity.description_text) : null;
+    if (!text) {
+      throw new Error(
+        `GovConApiSource: no description_text on detail endpoint for ${opp.externalNoticeId}.`,
+      );
+    }
+    return text;
   }
 }
