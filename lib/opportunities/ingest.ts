@@ -113,6 +113,18 @@ export async function runIngest(opts: IngestOptions): Promise<IngestSummary> {
 
       for (const raw of batch) {
         const opp = strategy.normalize(raw);
+        // Drop out-of-scope notice types (Justification, surplus, etc.) before
+        // they ever hit Postgres — they violate the actionable-digest premise.
+        if (
+          !strategy.isEligible(opp, {
+            naicsCodes: [],
+            setAsideTypes: [],
+            noticeTypes: [],
+            agenciesExcluded: [],
+          })
+        ) {
+          continue;
+        }
         const result = await opts.store.upsertOpportunity(opp, hashRawData(opp.rawData));
         if (result !== 'unchanged') upserted += 1;
         if (result === 'new') newCount += 1;

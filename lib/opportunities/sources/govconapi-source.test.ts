@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GovConApiSource } from './govconapi-source';
 import { NormalizedOpportunitySchema } from './types';
 
@@ -42,15 +42,103 @@ describe('GovConApiSource', () => {
     await expect(source.fetchDescription(baseOpp(null))).rejects.toThrow();
   });
 
-  it('search() throws a clear pending error until a real sample is mapped', async () => {
-    const source = new GovConApiSource();
-    await expect(
-      source.search({ postedFrom: '01/01/2026', postedTo: '01/02/2026', limit: 5, offset: 0 }),
-    ).rejects.toThrow(/not implemented yet/i);
-  });
+  describe('search', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllEnvs();
+    });
 
-  // Blocked on a real GovConAPI sample response (see STATUS.md, M0). Once the
-  // response schema is known, implement the parser and enable this to assert a
-  // clean parse AND that descriptionText is populated inline.
-  it.skip('REAL: narrow search parses with inline descriptions (pending GovConAPI sample)', () => {});
+    function mockSearchResponse(body: unknown) {
+      return vi.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    }
+
+    it('hits opportunities/search with Bearer auth, ISO dates, and pagination', async () => {
+      vi.stubEnv('GOVCONAPI_KEY', 'test-key');
+      const fetchMock = mockSearchResponse({ data: [], pagination: { has_next: false } });
+
+      await new GovConApiSource().search({
+        postedFrom: '05/01/2026',
+        postedTo: '05/02/2026',
+        limit: 50,
+        offset: 100,
+      });
+
+      const [calledUrl, init] = fetchMock.mock.calls[0];
+      const url = String(calledUrl);
+      expect(url).toContain('https://govconapi.com/api/v1/opportunities/search');
+      expect(url).toContain('date_from=2026-05-01');
+      expect(url).toContain('date_to=2026-05-02');
+      expect(url).toContain('limit=50');
+      expect(url).toContain('offset=100');
+      expect(url).toContain('sort_by=posted_date');
+      expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer test-key' });
+    });
+
+    it('maps a real GovConAPI record to NormalizedOpportunity (inline description, first NAICS, contact, place of performance)', async () => {
+      vi.stubEnv('GOVCONAPI_KEY', 'test-key');
+      mockSearchResponse({
+        data: [
+          {
+            notice_id: 'abc123def456',
+            title: 'IT Services Contract',
+            agency: 'Department of Defense',
+            posted_date: '2025-11-01',
+            response_deadline: '2025-12-15T17:00:00+00:00',
+            naics: ['541330', '541512'],
+            notice_type: 'Solicitation',
+            set_aside_type: 'Small Business',
+            solicitation_number: 'W52P1J-25-R-0001',
+            description_text: 'Full contract requirements...',
+            award_amount: 1500000.0,
+            awardee_name: 'Tech Solutions Inc',
+            contact_name: 'John Smith',
+            contact_email: 'john.smith@agency.gov',
+            sam_url: 'https://sam.gov/opp/...',
+            performance_city_name: 'Washington',
+            performance_state_code: 'DC',
+          },
+        ],
+        pagination: { limit: 20, offset: 0, total: 1, has_next: false },
+      });
+
+      const [o] = await new GovConApiSource().search({
+        postedFrom: '11/01/2025',
+        postedTo: '11/02/2025',
+        limit: 20,
+        offset: 0,
+      });
+
+      expect(o.externalNoticeId).toBe('abc123def456');
+      expect(o.title).toBe('IT Services Contract');
+      expect(o.noticeType).toBe('Solicitation');
+      expect(o.naicsCode).toBe('541330'); // first of array
+      expect(o.setAsideType).toBe('Small Business');
+      expect(o.solicitationNumber).toBe('W52P1J-25-R-0001');
+      expect(o.descriptionText).toBe('Full contract requirements...');
+      expect(o.placeOfPerformance).toEqual({ city: 'Washington', state: 'DC' });
+      expect(o.pointOfContact).toEqual({ name: 'John Smith', email: 'john.smith@agency.gov' });
+      expect(o.descriptionUrl).toBe('https://sam.gov/opp/...');
+      // Fields not on NormalizedOpportunity (award_amount, awardee_name) survive on rawData.
+      expect(o.rawData.award_amount).toBe(1500000);
+    });
+
+    it('falls back to "Unknown" notice_type so the ingest in-scope filter drops it', async () => {
+      vi.stubEnv('GOVCONAPI_KEY', 'test-key');
+      mockSearchResponse({
+        data: [{ notice_id: 'n2', title: 'No type given' }],
+      });
+      const [o] = await new GovConApiSource().search({
+        postedFrom: '05/01/2026',
+        postedTo: '05/02/2026',
+        limit: 20,
+        offset: 0,
+      });
+      expect(o.noticeType).toBe('Unknown');
+    });
+  });
 });
