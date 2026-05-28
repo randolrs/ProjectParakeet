@@ -35,27 +35,14 @@ function toIsoDate(mmddyyyy: string): string {
   return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
 }
 
-// Permissive item schema: validates the fields we map, passthrough keeps the
-// rest of the ~59 documented fields for rawData. Don't infer required fields
-// you have not seen in a real response.
+// Only require the two anchor fields. The other ~57 fields vary in shape per
+// record (naics is an array, psc is too, etc.); reading them through safe
+// coercions below means an unexpected type on one field never kills a whole
+// batch. Passthrough preserves everything for rawData.
 const GovConApiOpportunitySchema = z
   .object({
     notice_id: z.string(),
     title: z.string(),
-    solicitation_number: z.string().nullable().optional(),
-    agency: z.string().nullable().optional(),
-    notice_type: z.string().nullable().optional(),
-    naics: z.array(z.string()).nullable().optional(),
-    psc: z.string().nullable().optional(),
-    set_aside_type: z.string().nullable().optional(),
-    posted_date: z.string().nullable().optional(),
-    response_deadline: z.string().nullable().optional(),
-    description_text: z.string().nullable().optional(),
-    contact_name: z.string().nullable().optional(),
-    contact_email: z.string().nullable().optional(),
-    performance_city_name: z.string().nullable().optional(),
-    performance_state_code: z.string().nullable().optional(),
-    sam_url: z.string().nullable().optional(),
   })
   .passthrough();
 type GovConApiOpportunity = z.infer<typeof GovConApiOpportunitySchema>;
@@ -75,37 +62,47 @@ const GovConApiResponseSchema = z
   })
   .passthrough();
 
+const asString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
+// Many GovConAPI fields are arrays of strings (naics, psc, ...); when we only
+// store a single code, take the first.
+const firstString = (v: unknown): string | null => {
+  if (typeof v === 'string' && v.length > 0) return v;
+  if (Array.isArray(v)) {
+    const first = v.find((x) => typeof x === 'string' && x.length > 0);
+    return typeof first === 'string' ? first : null;
+  }
+  return null;
+};
+
 function toNormalized(item: GovConApiOpportunity): NormalizedOpportunity {
-  const placeOfPerformance =
-    item.performance_city_name || item.performance_state_code
-      ? { city: item.performance_city_name ?? null, state: item.performance_state_code ?? null }
-      : null;
-  const pointOfContact =
-    item.contact_name || item.contact_email
-      ? { name: item.contact_name ?? null, email: item.contact_email ?? null }
-      : null;
+  const r = item as Record<string, unknown>;
+
+  const city = asString(r.performance_city_name);
+  const state = asString(r.performance_state_code);
+  const contactName = asString(r.contact_name);
+  const contactEmail = asString(r.contact_email);
 
   return {
     jurisdiction: 'federal',
     externalNoticeId: item.notice_id,
-    solicitationNumber: item.solicitation_number ?? null,
+    solicitationNumber: asString(r.solicitation_number),
     title: item.title,
-    department: item.agency ?? null,
+    department: asString(r.agency),
     subTier: null,
     office: null,
     // Fallback string is intentionally non-vocab so the ingest's in-scope
     // filter drops it — we never store an opportunity with no real notice type.
-    noticeType: item.notice_type ?? 'Unknown',
-    naicsCode: item.naics && item.naics.length > 0 ? item.naics[0] : null,
-    pscCode: item.psc ?? null,
-    setAsideType: item.set_aside_type ?? null,
-    postedDate: item.posted_date ?? '',
-    responseDeadline: item.response_deadline ?? null,
-    placeOfPerformance,
-    descriptionUrl: item.sam_url ?? null,
-    descriptionText: item.description_text ?? null,
-    pointOfContact,
-    rawData: item as Record<string, unknown>,
+    noticeType: asString(r.notice_type) ?? 'Unknown',
+    naicsCode: firstString(r.naics),
+    pscCode: firstString(r.psc),
+    setAsideType: asString(r.set_aside_type),
+    postedDate: asString(r.posted_date) ?? '',
+    responseDeadline: asString(r.response_deadline),
+    placeOfPerformance: city || state ? { city, state } : null,
+    descriptionUrl: asString(r.sam_url),
+    descriptionText: asString(r.description_text),
+    pointOfContact: contactName || contactEmail ? { name: contactName, email: contactEmail } : null,
+    rawData: r,
   };
 }
 

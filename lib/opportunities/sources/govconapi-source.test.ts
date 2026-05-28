@@ -79,7 +79,7 @@ describe('GovConApiSource', () => {
       expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer test-key' });
     });
 
-    it('maps a real GovConAPI record to NormalizedOpportunity (inline description, first NAICS, contact, place of performance)', async () => {
+    it('maps a real GovConAPI record to NormalizedOpportunity (inline description, first NAICS/PSC, contact, place of performance)', async () => {
       vi.stubEnv('GOVCONAPI_KEY', 'test-key');
       mockSearchResponse({
         data: [
@@ -90,6 +90,7 @@ describe('GovConApiSource', () => {
             posted_date: '2025-11-01',
             response_deadline: '2025-12-15T17:00:00+00:00',
             naics: ['541330', '541512'],
+            psc: ['D307', 'D399'], // array, like naics — was the live bug
             notice_type: 'Solicitation',
             set_aside_type: 'Small Business',
             solicitation_number: 'W52P1J-25-R-0001',
@@ -117,6 +118,7 @@ describe('GovConApiSource', () => {
       expect(o.title).toBe('IT Services Contract');
       expect(o.noticeType).toBe('Solicitation');
       expect(o.naicsCode).toBe('541330'); // first of array
+      expect(o.pscCode).toBe('D307'); // first of array
       expect(o.setAsideType).toBe('Small Business');
       expect(o.solicitationNumber).toBe('W52P1J-25-R-0001');
       expect(o.descriptionText).toBe('Full contract requirements...');
@@ -127,18 +129,30 @@ describe('GovConApiSource', () => {
       expect(o.rawData.award_amount).toBe(1500000);
     });
 
-    it('falls back to "Unknown" notice_type so the ingest in-scope filter drops it', async () => {
+    it('handles missing and unexpected field shapes without rejecting the batch', async () => {
       vi.stubEnv('GOVCONAPI_KEY', 'test-key');
       mockSearchResponse({
-        data: [{ notice_id: 'n2', title: 'No type given' }],
+        data: [
+          // Only the two anchor fields present.
+          { notice_id: 'n2', title: 'No type given' },
+          // psc as a string instead of an array — still maps cleanly.
+          { notice_id: 'n3', title: 'String psc', psc: 'R425' },
+          // psc as an empty array — null.
+          { notice_id: 'n4', title: 'Empty psc array', psc: [] },
+        ],
       });
-      const [o] = await new GovConApiSource().search({
+
+      const out = await new GovConApiSource().search({
         postedFrom: '05/01/2026',
         postedTo: '05/02/2026',
         limit: 20,
         offset: 0,
       });
-      expect(o.noticeType).toBe('Unknown');
+
+      expect(out).toHaveLength(3);
+      expect(out[0].noticeType).toBe('Unknown'); // ingest in-scope filter drops it
+      expect(out[1].pscCode).toBe('R425');
+      expect(out[2].pscCode).toBeNull();
     });
   });
 });
