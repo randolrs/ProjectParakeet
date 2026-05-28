@@ -1,9 +1,12 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { signOut } from '@/app/auth/actions';
+import { AdminIngestButton } from '@/components/admin-ingest-button';
 import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
+// Allow the admin-triggered ingest enough time to finish within the action.
+export const maxDuration = 60;
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -16,6 +19,9 @@ export default async function DashboardPage() {
     supabase.from('company_preferences').select('*').eq('user_id', user.id).maybeSingle(),
     supabase.from('bid_profile').select('*').eq('user_id', user.id).maybeSingle(),
   ]);
+
+  const founder = process.env.FOUNDER_EMAIL;
+  const isAdmin = !!founder && user.email?.toLowerCase() === founder.toLowerCase();
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-8">
@@ -83,6 +89,8 @@ export default async function DashboardPage() {
           </Link>
         </section>
       )}
+
+      {isAdmin && <AdminIngestButton />}
     </main>
   );
 }
