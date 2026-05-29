@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runIngest, type IngestStore, type UpsertResult } from './ingest';
+import { runIngest, type IngestStore, type UpsertCounts } from './ingest';
 import type {
   NormalizedOpportunity,
   OpportunitySearchParams,
@@ -56,11 +56,20 @@ class FakeStore implements IngestStore {
   async startRun(): Promise<string> {
     return 'run1';
   }
-  async upsertOpportunity(o: NormalizedOpportunity, hash: string): Promise<UpsertResult> {
-    const prev = this.byId.get(o.externalNoticeId);
-    this.byId.set(o.externalNoticeId, hash);
-    if (prev === undefined) return 'new';
-    return prev === hash ? 'unchanged' : 'updated';
+  async upsertOpportunities(
+    batch: { opp: NormalizedOpportunity; hash: string }[],
+  ): Promise<UpsertCounts> {
+    let newCount = 0;
+    let updatedCount = 0;
+    let unchangedCount = 0;
+    for (const b of batch) {
+      const prev = this.byId.get(b.opp.externalNoticeId);
+      this.byId.set(b.opp.externalNoticeId, b.hash);
+      if (prev === undefined) newCount += 1;
+      else if (prev === b.hash) unchangedCount += 1;
+      else updatedCount += 1;
+    }
+    return { newCount, updatedCount, unchangedCount };
   }
   async finishRun(_id: string, fields: { status: string; opportunitiesUpserted: number; opportunitiesNew: number }) {
     this.finished.push(fields);

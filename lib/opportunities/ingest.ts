@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { ingestRuns, opportunities } from '@/db/schema';
 import { FederalJurisdictionStrategy } from '@/lib/opportunities/jurisdictions/federal';
@@ -9,9 +9,11 @@ import {
   type OpportunitySource,
 } from '@/lib/opportunities/sources';
 
-export type UpsertResult = 'new' | 'updated' | 'unchanged';
+export type UpsertCounts = { newCount: number; updatedCount: number; unchangedCount: number };
 
-// The persistence seam, so runIngest is testable without a database.
+// The persistence seam, so runIngest is testable without a database. The
+// upsert is BULK (one batch per page): per-record round-trips through the
+// Supabase pooler push a 5-page run past Vercel's 60s function timeout.
 export interface IngestStore {
   lastSuccessfulWindowTo(source: string, jurisdiction: string): Promise<Date | null>;
   startRun(run: {
@@ -20,7 +22,9 @@ export interface IngestStore {
     windowFrom: Date;
     windowTo: Date;
   }): Promise<string>;
-  upsertOpportunity(opp: NormalizedOpportunity, rawDataHash: string): Promise<UpsertResult>;
+  upsertOpportunities(
+    batch: { opp: NormalizedOpportunity; hash: string }[],
+  ): Promise<UpsertCounts>;
   finishRun(
     id: string,
     fields: {
@@ -78,11 +82,11 @@ export async function runIngest(opts: IngestOptions): Promise<IngestSummary> {
   const now = opts.now ?? new Date();
   const lookbackDays = opts.lookbackDays ?? 2;
   const pageSize = opts.pageSize ?? 100;
-  // Conservative default — the current per-record upsert does 2 queries (select
-  // existing + insert/update), so ~50 records per page × ~100ms per record ≈
-  // 5s per page of DB work. 5 pages keeps a manual run comfortably inside the
-  // 60s Vercel function timeout. Raise once upsertOpportunity is bulk.
-  const maxPages = opts.maxPages ?? 5;
+  // Bulk upsert means each page is ~2-3 SQL round trips regardless of page
+  // size, so a page costs roughly the same whether it has 1 or 50 records.
+  // 15 pages × ~50 records × budget for the source's API latency comfortably
+  // fits inside Vercel's 60s function timeout.
+  const maxPages = opts.maxPages ?? 15;
 
   const lastTo = await opts.store.lastSuccessfulWindowTo(source.name, jurisdiction);
   const windowFrom = lastTo ?? new Date(now.getTime() - lookbackDays * 86_400_000);
@@ -115,6 +119,7 @@ export async function runIngest(opts: IngestOptions): Promise<IngestSummary> {
       if (page.items.length === 0) break;
       fetched += page.items.length;
 
+      const toUpsert: { opp: NormalizedOpportunity; hash: string }[] = [];
       for (const raw of page.items) {
         const opp = strategy.normalize(raw);
         // Drop out-of-scope notice types (Justification, surplus, etc.) before
@@ -129,10 +134,11 @@ export async function runIngest(opts: IngestOptions): Promise<IngestSummary> {
         ) {
           continue;
         }
-        const result = await opts.store.upsertOpportunity(opp, hashRawData(opp.rawData));
-        if (result !== 'unchanged') upserted += 1;
-        if (result === 'new') newCount += 1;
+        toUpsert.push({ opp, hash: hashRawData(opp.rawData) });
       }
+      const counts = await opts.store.upsertOpportunities(toUpsert);
+      upserted += counts.newCount + counts.updatedCount;
+      newCount += counts.newCount;
 
       if (!page.hasNext) break; // trust the source — don't assume by item count
       // Advance by the number actually returned (the source may cap below limit).
@@ -209,20 +215,43 @@ export class DrizzleIngestStore implements IngestStore {
     return rows[0].id;
   }
 
-  async upsertOpportunity(opp: NormalizedOpportunity, rawDataHash: string): Promise<UpsertResult> {
+  async upsertOpportunities(
+    batch: { opp: NormalizedOpportunity; hash: string }[],
+  ): Promise<UpsertCounts> {
+    if (batch.length === 0) {
+      return { newCount: 0, updatedCount: 0, unchangedCount: 0 };
+    }
     const db = getDb();
+    const jurisdiction = batch[0].opp.jurisdiction;
+    const noticeIds = batch.map((b) => b.opp.externalNoticeId);
+
+    // 1 round-trip: pull current id+hash for everything in this page.
     const existing = await db
-      .select({ id: opportunities.id, hash: opportunities.rawDataHash })
+      .select({
+        id: opportunities.id,
+        externalNoticeId: opportunities.externalNoticeId,
+        hash: opportunities.rawDataHash,
+      })
       .from(opportunities)
       .where(
         and(
-          eq(opportunities.jurisdiction, opp.jurisdiction),
-          eq(opportunities.externalNoticeId, opp.externalNoticeId),
+          eq(opportunities.jurisdiction, jurisdiction),
+          inArray(opportunities.externalNoticeId, noticeIds),
         ),
-      )
-      .limit(1);
+      );
+    const byNoticeId = new Map(existing.map((e) => [e.externalNoticeId, e]));
 
-    const values = {
+    const toInsert: { opp: NormalizedOpportunity; hash: string }[] = [];
+    const toUpdate: { id: string; opp: NormalizedOpportunity; hash: string }[] = [];
+    const unchangedIds: string[] = [];
+    for (const b of batch) {
+      const prior = byNoticeId.get(b.opp.externalNoticeId);
+      if (!prior) toInsert.push(b);
+      else if (prior.hash === b.hash) unchangedIds.push(prior.id);
+      else toUpdate.push({ id: prior.id, opp: b.opp, hash: b.hash });
+    }
+
+    const buildValues = (opp: NormalizedOpportunity, hash: string) => ({
       jurisdiction: opp.jurisdiction,
       externalNoticeId: opp.externalNoticeId,
       solicitationNumber: opp.solicitationNumber,
@@ -241,23 +270,38 @@ export class DrizzleIngestStore implements IngestStore {
       descriptionText: opp.descriptionText,
       pointOfContact: opp.pointOfContact,
       rawData: opp.rawData,
-      rawDataHash,
+      rawDataHash: hash,
       lastFetchedAt: new Date(),
-    };
+    });
 
-    if (!existing[0]) {
-      await db.insert(opportunities).values(values);
-      return 'new';
+    // 1 round-trip: bulk insert new rows (the common case on first ingest).
+    if (toInsert.length > 0) {
+      await db.insert(opportunities).values(toInsert.map((b) => buildValues(b.opp, b.hash)));
     }
-    if (existing[0].hash === rawDataHash) {
+
+    // K round-trips for K rows that actually changed (typically small after
+    // the first run); rawData drives the hash so most re-fetches are no-ops.
+    for (const u of toUpdate) {
+      await db
+        .update(opportunities)
+        .set(buildValues(u.opp, u.hash))
+        .where(eq(opportunities.id, u.id));
+    }
+
+    // 1 round-trip: touch last_fetched_at on unchanged rows so we can see
+    // which are still active in the source.
+    if (unchangedIds.length > 0) {
       await db
         .update(opportunities)
         .set({ lastFetchedAt: new Date() })
-        .where(eq(opportunities.id, existing[0].id));
-      return 'unchanged';
+        .where(inArray(opportunities.id, unchangedIds));
     }
-    await db.update(opportunities).set(values).where(eq(opportunities.id, existing[0].id));
-    return 'updated';
+
+    return {
+      newCount: toInsert.length,
+      updatedCount: toUpdate.length,
+      unchangedCount: unchangedIds.length,
+    };
   }
 
   async finishRun(
