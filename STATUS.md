@@ -1,8 +1,55 @@
 # Project Parakeet — Status
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-05-29_
 
-## Current milestone: M3 — Daily ingest (CODE COMPLETE, needs source key to run live)
+## Current milestone: M4 — Digest pipeline (IN PROGRESS)
+
+### Scope
+Per CLAUDE.md cost discipline, the per-user pipeline is: **filter in Postgres** (aggressive
+pre-filter against ingested opportunities — NAICS, set-aside eligibility, agencies, notice-types,
+value band, place of performance) → **lazy-fetch descriptions** for the survivors (cached
+permanently; re-fetch only on `raw_data_hash` change) → **Haiku 4.5 per-opportunity scoring**
+(cached for the life of the opportunity; re-score only on modification) → **Sonnet 4.6 digest
+synthesis** of the top N → **HTML render** → **Resend email** to the user (founder first).
+Target: ≤15-25 opportunities per user per day reach LLM scoring.
+
+### Plan
+1. Schema: `digests` + `digest_entries` tables (RLS owner-scoped on entries; trusted-access on
+   digests). Migration generated + applied.
+2. Eligibility filter: pure `lib/digest/filter.ts` over `opportunities` × `company_preferences`,
+   unit-tested with a fake DB.
+3. Description lazy-fetch: for the filtered set, call `source.fetchDescription(opp)` only when
+   `description_text IS NULL`; cache to `opportunities.description_text`; bump
+   `ingest_runs.descriptions_fetched`.
+4. Scoring: Haiku 4.5 per-opportunity prompt (`/lib/llm/prompts/federal/opportunity-scoring.ts`)
+   producing `{ fit_score, bid_recommendation, reasoning_text, key_factors }`; cached per
+   (opportunity_id, raw_data_hash) so we re-score only on modification.
+5. Digest synthesis: Sonnet 4.6 over the top-ranked entries → final ordered digest text + per-entry
+   reasoning. Stored in `digest_entries`.
+6. Render: HTML email template (mobile-first, plain-text fallback).
+7. Send: Resend client wrapper (`/lib/email/resend-client.ts`) with retry + timeout + logging.
+8. Trigger: admin "Run digest now" button on `/dashboard` (sends to the calling founder); plus a
+   `GET /api/cron/digest` route (CRON_SECRET) that iterates active users and respects
+   `digest_delivery_hour`.
+
+### Blocked — needs founder action (to send live)
+- Add `RESEND_API_KEY` to Vercel before flipping the send path on.
+- Verify Resend sender domain (DNS) or use Resend's onboarding sandbox sender for the first proof
+  to the founder's inbox.
+
+### M4 acceptance criteria
+- [ ] Eligibility filter: unit-tested, runs ≤500ms over 50k rows
+- [ ] Lazy description fetch wired and counted in `ingest_runs.descriptions_fetched`
+- [ ] Per-opportunity scoring with Haiku, cached on (opportunity, hash)
+- [ ] Digest synthesis with Sonnet 4.6 produces a ranked digest
+- [ ] First test digest delivered to founder via Resend
+- [ ] Founder-verified
+
+### Next
+Land the schema + eligibility filter first (the highest-leverage step before any LLM cost is
+incurred), then the lazy description fetch, then scoring + synthesis + send.
+
+## Milestone M3 — Daily ingest (COMPLETE, founder sign-off 2026-05-29)
 
 ### Done (code + DB)
 - `opportunities` + `ingest_runs` tables (Drizzle; migrations 0005/0006 applied). RLS enabled
@@ -12,29 +59,37 @@ _Last updated: 2026-05-27_
   an injectable store: reads `source.capabilities.requestBudget`, caps pages/run, dedupes by
   `raw_data_hash` (new/updated/unchanged), logs each run to `ingest_runs`. Unit-tested with a fake
   source + store.
+- GovConAPI real implementation (`lib/opportunities/sources/govconapi-source.ts`): Bearer auth,
+  ISO date window, defensive Zod parser (only requires `notice_id` + `title`; everything else via
+  safe coercions so unexpected shapes like `psc: []`/`psc: 'R425'` don't reject a batch).
+  `descriptionsInline: false` (verified live 2026-05-28: only Award Notices inline `description_text`;
+  Solicitation / Combined / Sources Sought / Special have it null with `description_url` only —
+  same cost shape as SAM direct). `fetchDescription` falls back to the `/opportunities/{id}` detail
+  endpoint, spending GovConAPI budget.
+- Bulk upsert in `DrizzleIngestStore.upsertOpportunities`: 1 SELECT for existing hashes + 1 bulk
+  INSERT + K updates for changed + 1 bulk UPDATE touching `last_fetched_at` on unchanged. Reduced
+  a 50-record page from ~100 SQL round-trips to ~3; full 15-page run completes in ~8s well inside
+  Vercel's 60s function timeout.
+- Trust source pagination: `OpportunitySource.search` returns `{ items, hasNext }` and we drive
+  pagination off `hasNext`, not item count (so the GovConAPI Free-tier 50/page cap can't truncate).
+  Regression test included.
 - Daily Vercel Cron (`vercel.json`, 06:00 UTC) -> `GET /api/cron/ingest`, guarded by `CRON_SECRET`.
+- Admin "Run ingest now" button on `/dashboard` for the founder (gated by `FOUNDER_EMAIL`).
+- `app/dashboard/error.tsx` error boundary so a failed action doesn't surface Next's last-resort
+  "Application error" overlay.
 - `lib/db.ts` made lazy (`getDb()`) so importing it never throws at build when `DATABASE_URL` absent.
-- Gates: lint clean, 44 tests pass (3 skipped), build green.
 
-### Blocked — needs founder action (to run live)
-1. Add a source key to Vercel: `GOVCONAPI_KEY` (instant; v1 primary) and set
-   `OPPORTUNITY_SOURCE=govconapi`. (`SAM_API_KEY` is the fallback — 10/day until entity reg clears.)
-2. Add `CRON_SECRET` to Vercel (guards the cron route; Vercel attaches it as the bearer token).
-3. Confirm GovConAPI ToS has no no-competing/no-derivative-service clause before relying on it
-   (CLAUDE.md known risk); if present, SAM direct is the production source.
-   (`DATABASE_URL` is already in Vercel from M0 — the ingest's trusted path uses it.)
+### Founder config (done)
+- `OPPORTUNITY_SOURCE=govconapi`, `GOVCONAPI_KEY`, `CRON_SECRET`, `FOUNDER_EMAIL` set in Vercel.
 
 ### M3 acceptance criteria
 - [x] Cron pulls active federal opportunities into Postgres via the active source
 - [x] Budget-aware (reads source capabilities; per-run page cap; logged in `ingest_runs`)
-- [x] Descriptions present per source capability (GovConAPI inline; SAM lazy-fetch deferred to when SAM is active)
-- [ ] Verified live (needs a source key) — manual run + founder check
-- [ ] Founder-verified
-
-### Next
-Founder adds `GOVCONAPI_KEY` + `OPPORTUNITY_SOURCE` + `CRON_SECRET` to Vercel; then trigger
-`/api/cron/ingest` once (with the bearer) or wait for the 06:00 UTC cron, and confirm `opportunities`
-rows + an `ingest_runs` row land. Then M4 (digest pipeline: filter + score + bid/no-bid + email) begins.
+- [x] Descriptions present per source capability (GovConAPI inline for Award Notices today;
+      lazy-fetch path implemented and verified — proper invocation gated by eligibility lands in M4)
+- [x] Verified live (manual runs through the admin button populated 790 distinct rows across two
+      one-day windows; pagination drove `hasNext=true` for 15 pages × 50 records in ~8s)
+- [x] Founder-verified (2026-05-29)
 
 ## Milestone M2 — Conversational onboarding + onboarding rework (COMPLETE, founder sign-off 2026-05-27)
 
