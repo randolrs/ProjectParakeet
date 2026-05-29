@@ -50,6 +50,20 @@
       "when": 1779913297691,
       "tag": "0006_ingest_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780074685628,
+      "tag": "0007_flippant_the_hunter",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780074686000,
+      "tag": "0008_digests_rls",
+      "breakpoints": true
     }
   ]
 }

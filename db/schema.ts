@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  date,
   integer,
   jsonb,
   pgTable,
@@ -144,6 +145,65 @@ export const opportunities = pgTable(
     isActive: boolean('is_active').notNull().default(true),
   },
   (t) => [unique('opportunities_jurisdiction_external_id_unique').on(t.jurisdiction, t.externalNoticeId)],
+);
+
+// One per-user digest produced for a given day. Written by the trusted server
+// job (cron / manual trigger); users can read their own through RLS.
+export const digests = pgTable(
+  'digests',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    digestDate: date('digest_date').notNull(),
+    jurisdiction: text('jurisdiction').notNull().default('federal'),
+    // pending -> generating -> sent | failed
+    status: text('status').notNull().default('pending'),
+    candidatesConsidered: integer('candidates_considered').notNull().default(0),
+    entriesCount: integer('entries_count').notNull().default(0),
+    error: text('error'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // One digest per user per day per jurisdiction.
+  (t) => [unique('digests_user_date_jurisdiction_unique').on(t.userId, t.digestDate, t.jurisdiction)],
+);
+
+// One row per opportunity included in a user's digest. user_id denormalized so
+// owner-scoped RLS does not need to join. opportunity_hash + bid_profile_version
+// snapshot the scoring inputs so a re-run for the same day can reuse cached
+// scoring without re-calling the LLM unless the underlying data shifted.
+export const digestEntries = pgTable(
+  'digest_entries',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    digestId: uuid('digest_id')
+      .notNull()
+      .references(() => digests.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    opportunityId: uuid('opportunity_id')
+      .notNull()
+      .references(() => opportunities.id, { onDelete: 'cascade' }),
+    rank: integer('rank').notNull(),
+    fitScore: integer('fit_score').notNull(),
+    bidRecommendation: text('bid_recommendation').notNull(),
+    reasoningText: text('reasoning_text').notNull(),
+    keyFactors: jsonb('key_factors').notNull().default(sql`'[]'::jsonb`),
+    responseDeadline: timestamp('response_deadline', { withTimezone: true }),
+    opportunityHash: text('opportunity_hash').notNull(),
+    bidProfileVersion: integer('bid_profile_version').notNull(),
+    scoredAt: timestamp('scored_at', { withTimezone: true }).notNull().defaultNow(),
+    // pursuing | passed | watching | null (un-dispositioned)
+    userDisposition: text('user_disposition'),
+    dispositionedAt: timestamp('dispositioned_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('digest_entries_digest_opportunity_unique').on(t.digestId, t.opportunityId),
+  ],
 );
 
 // One row per ingest run: window, requests consumed (budget tracking), and
