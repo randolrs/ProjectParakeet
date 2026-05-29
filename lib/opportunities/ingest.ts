@@ -78,7 +78,11 @@ export async function runIngest(opts: IngestOptions): Promise<IngestSummary> {
   const now = opts.now ?? new Date();
   const lookbackDays = opts.lookbackDays ?? 2;
   const pageSize = opts.pageSize ?? 100;
-  const maxPages = opts.maxPages ?? 25;
+  // Conservative default — the current per-record upsert does 2 queries (select
+  // existing + insert/update), so ~50 records per page × ~100ms per record ≈
+  // 5s per page of DB work. 5 pages keeps a manual run comfortably inside the
+  // 60s Vercel function timeout. Raise once upsertOpportunity is bulk.
+  const maxPages = opts.maxPages ?? 5;
 
   const lastTo = await opts.store.lastSuccessfulWindowTo(source.name, jurisdiction);
   const windowFrom = lastTo ?? new Date(now.getTime() - lookbackDays * 86_400_000);
