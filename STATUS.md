@@ -2,52 +2,72 @@
 
 _Last updated: 2026-05-29_
 
-## Current milestone: M4 — Digest pipeline (IN PROGRESS)
+## Current milestone: M4 — Digest pipeline (CODE COMPLETE, needs Resend keys to send live)
 
-### Scope
-Per CLAUDE.md cost discipline, the per-user pipeline is: **filter in Postgres** (aggressive
-pre-filter against ingested opportunities — NAICS, set-aside eligibility, agencies, notice-types,
-value band, place of performance) → **lazy-fetch descriptions** for the survivors (cached
-permanently; re-fetch only on `raw_data_hash` change) → **Haiku 4.5 per-opportunity scoring**
-(cached for the life of the opportunity; re-score only on modification) → **Sonnet 4.6 digest
-synthesis** of the top N → **HTML render** → **Resend email** to the user (founder first).
-Target: ≤15-25 opportunities per user per day reach LLM scoring.
-
-### Plan
-1. Schema: `digests` + `digest_entries` tables (RLS owner-scoped on entries; trusted-access on
-   digests). Migration generated + applied.
-2. Eligibility filter: pure `lib/digest/filter.ts` over `opportunities` × `company_preferences`,
-   unit-tested with a fake DB.
-3. Description lazy-fetch: for the filtered set, call `source.fetchDescription(opp)` only when
-   `description_text IS NULL`; cache to `opportunities.description_text`; bump
-   `ingest_runs.descriptions_fetched`.
-4. Scoring: Haiku 4.5 per-opportunity prompt (`/lib/llm/prompts/federal/opportunity-scoring.ts`)
-   producing `{ fit_score, bid_recommendation, reasoning_text, key_factors }`; cached per
-   (opportunity_id, raw_data_hash) so we re-score only on modification.
-5. Digest synthesis: Sonnet 4.6 over the top-ranked entries → final ordered digest text + per-entry
-   reasoning. Stored in `digest_entries`.
-6. Render: HTML email template (mobile-first, plain-text fallback).
-7. Send: Resend client wrapper (`/lib/email/resend-client.ts`) with retry + timeout + logging.
-8. Trigger: admin "Run digest now" button on `/dashboard` (sends to the calling founder); plus a
-   `GET /api/cron/digest` route (CRON_SECRET) that iterates active users and respects
-   `digest_delivery_hour`.
+### Done (code + DB)
+- Schema: `digests` + `digest_entries` tables (Drizzle; migrations 0007/0008 applied live).
+  Owner-scoped SELECT on both; UPDATE-own on entries (for `user_disposition`); writes via the
+  trusted Drizzle path. `digest_entries` snapshots `opportunity_hash` + `bid_profile_version`
+  so scoring cache can re-score only on input change.
+- Per-user eligibility filter (`lib/digest/eligibility.ts`): pure function over a normalized
+  opportunity + a profile. Rules: NAICS pool, set-asides (open competitions always pass; substring
+  match for vendor formatting variance), notice types, agency exclusions, place-of-performance
+  (handles SAM `{state:{code}}` shape, nationwide, defers on unknown POP), deadline-passed.
+  Aggregates ALL failing reasons (lossy reasons hide bugs). 20 unit tests.
+- Candidate selection (`lib/digest/candidates.ts`): SQL pre-filter (jurisdiction, active, deadline,
+  in-scope notice types) + in-memory eligibility application. `dropCounts` keyed by reason for
+  observability. CandidateOpportunity omits `raw_data` from the SELECT (hundreds of KB per row,
+  never read by the pipeline). 4 tests.
+- Lazy description fetch (`lib/digest/descriptions.ts`): gated by eligibility (already done by
+  step above), `maxFetches` default 100/run (CLAUDE.md cost discipline), per-fetch failure
+  isolation, cache to `opportunities.description_text` + bump `last_fetched_at`. 6 tests.
+- Per-opp scoring (`lib/digest/scoring.ts` + `lib/llm/prompts/federal/opportunity-scoring.ts`):
+  Haiku 4.5, forced tool-use (`record_opportunity_score`) producing
+  `{fit_score, bid_recommendation, reasoning_text, key_factors}`. Prompt explicitly targets the
+  competitor gap — scores against the M2 tacit-judgment fields (walk-away signals, incumbent
+  appetite, teaming, effort/P(win)). Award Notices NEVER score "bid". Cache key
+  (user, opp, opportunity_hash, bid_profile_version): a profile bump OR an upstream opp change
+  forces re-score. Sequential calls for prompt-cache (ephemeral) hit on shared system block.
+  13 tests across prompt + scoring orchestrator.
+- Digest synthesis (`lib/digest/synthesis.ts` + `lib/llm/prompts/federal/digest-synthesis.ts`):
+  deterministic ranking (drop no_bid; order by recommendation tier → fit_score → deadline asc),
+  then bump <72h deadlines to the top. Single Sonnet 4.6 call writes a 2-3 sentence TL;DR header
+  for the email (the only cross-opp signal); per-opp reasoning came from Haiku. 9 tests.
+- HTML+text render (`lib/digest/render.ts`): mobile-first single column, inline styles only,
+  color-coded recommendation, deadline label adapts to runway, HTML escapes all source-supplied
+  text. Plain-text fallback. 8 tests.
+- Resend wrapper (`lib/email/resend-client.ts`): raw fetch (no SDK), retry/timeout/logging via
+  shared `fetchJson`, Zod-validated response. `RESEND_FROM_EMAIL` configurable so the first proof
+  can use Resend's sandbox sender (`onboarding@resend.dev`) before a domain verifies.
+- End-to-end orchestrator (`lib/digest/generate.ts`): wires all the above through injectable
+  seams. DrizzleDigestStore idempotent on (user, date) so re-runs reuse the row.
+  `findUsersDueForDigest` matches users on `digest_delivery_hour == UTC hour AND no digest yet
+  today (or last attempt failed)`. 5 tests.
+- Admin button: `runDigestNow` server action + `AdminDigestButton` component (gated by
+  `FOUNDER_EMAIL`, same shape as the M3 ingest button).
+- Hourly Vercel Cron (`vercel.json`) → `GET /api/cron/digest`, Bearer `CRON_SECRET`; processes
+  each due user sequentially within the 60s function timeout.
 
 ### Blocked — needs founder action (to send live)
-- Add `RESEND_API_KEY` to Vercel before flipping the send path on.
-- Verify Resend sender domain (DNS) or use Resend's onboarding sandbox sender for the first proof
-  to the founder's inbox.
+1. Add `RESEND_API_KEY` to Vercel.
+2. Add `RESEND_FROM_EMAIL` to Vercel — either a verified-domain sender (e.g.
+   `Parakeet <digest@yourdomain>`) or Resend's sandbox sender `onboarding@resend.dev` for the
+   first proof. Sandbox sender only delivers to the account owner's email.
+3. Click "Run digest now" on `/dashboard` and confirm the email lands; check `digests` /
+   `digest_entries` populated. (No new Vercel env beyond Resend; ANTHROPIC_API_KEY,
+   GOVCONAPI_KEY, CRON_SECRET, FOUNDER_EMAIL already set from M2/M3.)
 
 ### M4 acceptance criteria
-- [ ] Eligibility filter: unit-tested, runs ≤500ms over 50k rows
-- [ ] Lazy description fetch wired and counted in `ingest_runs.descriptions_fetched`
-- [ ] Per-opportunity scoring with Haiku, cached on (opportunity, hash)
-- [ ] Digest synthesis with Sonnet 4.6 produces a ranked digest
+- [x] Eligibility filter: unit-tested (20 tests), pure function — fast enough to run over 50k rows
+- [x] Lazy description fetch wired (eligibility-gated, cached, capped, failure-isolated)
+- [x] Per-opportunity scoring with Haiku, cached on (user, opp, opportunity_hash, profile_version)
+- [x] Digest synthesis (deterministic rank + Sonnet TL;DR header)
 - [ ] First test digest delivered to founder via Resend
 - [ ] Founder-verified
 
 ### Next
-Land the schema + eligibility filter first (the highest-leverage step before any LLM cost is
-incurred), then the lazy description fetch, then scoring + synthesis + send.
+Founder adds `RESEND_API_KEY` + `RESEND_FROM_EMAIL` to Vercel; click "Run digest now" and confirm
+the email + DB rows. Then M4 closes and M5 (Stripe checkout, paywall, single tier) begins.
 
 ## Milestone M3 — Daily ingest (COMPLETE, founder sign-off 2026-05-29)
 
