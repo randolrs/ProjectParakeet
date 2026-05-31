@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { signOut } from '@/app/auth/actions';
+import { AdminDigestButton } from '@/components/admin-digest-button';
 import { AdminIngestButton } from '@/components/admin-ingest-button';
 import { createClient } from '@/lib/supabase/server';
 
@@ -90,7 +91,12 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {isAdmin && <AdminIngestButton />}
+      {isAdmin && (
+        <>
+          <AdminIngestButton />
+          <AdminDigestButton />
+        </>
+      )}
     </main>
   );
 }
